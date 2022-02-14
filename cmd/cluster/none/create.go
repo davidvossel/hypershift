@@ -8,6 +8,7 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
 	apifixtures "github.com/openshift/hypershift/api/fixtures"
+	"github.com/openshift/hypershift/cmd/cluster/common"
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	"github.com/openshift/hypershift/cmd/log"
 )
@@ -20,10 +21,8 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	}
 
 	opts.NonePlatform = core.NonePlatformCreateOptions{
-		APIServerAddress: "",
+		ServicesPublishOpts: common.NewServicesPublishOptions(cmd),
 	}
-
-	cmd.Flags().StringVar(&opts.NonePlatform.APIServerAddress, "external-api-server-address", opts.NonePlatform.APIServerAddress, "The external API Server Address when using platform none")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -51,12 +50,6 @@ func CreateCluster(ctx context.Context, opts *core.CreateOptions) error {
 }
 
 func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtures.ExampleOptions, opts *core.CreateOptions) (err error) {
-	if opts.NonePlatform.APIServerAddress == "" {
-		if opts.NonePlatform.APIServerAddress, err = core.GetAPIServerAddressByNode(ctx); err != nil {
-			return err
-		}
-	}
-
 	infraID := opts.InfraID
 	if len(infraID) == 0 {
 		infraID = fmt.Sprintf("%s-%s", opts.Name, utilrand.String(5))
@@ -67,8 +60,12 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		exampleOptions.BaseDomain = "example.com"
 	}
 
-	exampleOptions.None = &apifixtures.ExampleNoneOptions{
-		APIServerAddress: opts.NonePlatform.APIServerAddress,
+	exampleOptions.None = &apifixtures.ExampleNoneOptions{}
+	if opts.NonePlatform.ServicesPublishOpts != nil {
+		exampleOptions.None.ServicesPublishOpts, err = opts.NonePlatform.ServicesPublishOpts.ExampleServicesPublishOpts(ctx, opts.Render)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

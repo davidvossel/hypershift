@@ -8,6 +8,7 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
 	apifixtures "github.com/openshift/hypershift/api/fixtures"
+	"github.com/openshift/hypershift/cmd/cluster/common"
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	"github.com/openshift/hypershift/cmd/log"
 )
@@ -20,7 +21,8 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	}
 
 	opts.AgentPlatform = core.AgentPlatformCreateOptions{
-		AgentNamespace: "",
+		ServicesPublishOpts: common.NewServicesPublishOptions(cmd),
+		AgentNamespace:      "",
 	}
 
 	cmd.Flags().StringVar(&opts.AgentPlatform.AgentNamespace, "agent-namespace", opts.AgentPlatform.AgentNamespace, "The namespace in which to search for Agents")
@@ -49,13 +51,6 @@ func CreateCluster(ctx context.Context, opts *core.CreateOptions) error {
 }
 
 func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtures.ExampleOptions, opts *core.CreateOptions) (err error) {
-	if opts.AgentPlatform.APIServerAddress == "" {
-		opts.AgentPlatform.APIServerAddress, err = core.GetAPIServerAddressByNode(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
 	infraID := opts.InfraID
 	if len(infraID) == 0 {
 		infraID = fmt.Sprintf("%s-%s", opts.Name, utilrand.String(5))
@@ -67,8 +62,13 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 	}
 
 	exampleOptions.Agent = &apifixtures.ExampleAgentOptions{
-		APIServerAddress: opts.AgentPlatform.APIServerAddress,
-		AgentNamespace:   opts.AgentPlatform.AgentNamespace,
+		AgentNamespace: opts.AgentPlatform.AgentNamespace,
+	}
+	if opts.AgentPlatform.ServicesPublishOpts != nil {
+		exampleOptions.Agent.ServicesPublishOpts, err = opts.AgentPlatform.ServicesPublishOpts.ExampleServicesPublishOpts(ctx, opts.Render)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

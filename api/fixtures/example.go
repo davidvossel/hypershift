@@ -71,20 +71,25 @@ type ExampleOptions struct {
 	InfrastructureAvailabilityPolicy hyperv1.AvailabilityPolicy
 }
 
+type ExampleServicesPublishOptions struct {
+	UseNodePortPublishStrategy bool
+	APIServerAddress           string
+}
+
 type ExampleNoneOptions struct {
-	APIServerAddress string
+	ServicesPublishOpts *ExampleServicesPublishOptions
 }
 
 type ExampleAgentOptions struct {
-	APIServerAddress string
-	AgentNamespace   string
+	ServicesPublishOpts *ExampleServicesPublishOptions
+	AgentNamespace      string
 }
 
 type ExampleKubevirtOptions struct {
-	APIServerAddress string
-	Memory           string
-	Cores            uint32
-	Image            string
+	ServicesPublishOpts *ExampleServicesPublishOptions
+	Memory              string
+	Cores               uint32
+	Image               string
 }
 
 type ExampleAWSOptionsZones struct {
@@ -257,43 +262,12 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			}
 		}
 
-		services = []hyperv1.ServicePublishingStrategyMapping{
-			{
-				Service: hyperv1.APIServer,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.LoadBalancer,
-				},
-			},
-			{
-				Service: hyperv1.OAuthServer,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-			{
-				Service: hyperv1.OIDC,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.S3,
-				},
-			},
-			{
-				Service: hyperv1.Konnectivity,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-			{
-				Service: hyperv1.Ignition,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-		}
+		services = o.getServicePublishingStrategyMapping(true, nil)
 	case o.None != nil:
 		platformSpec = hyperv1.PlatformSpec{
 			Type: hyperv1.NonePlatform,
 		}
-		services = o.getServicePublishingStrategyMappingByAPIServerAddress(o.None.APIServerAddress)
+		services = o.getServicePublishingStrategyMapping(false, o.None.ServicesPublishOpts)
 	case o.Agent != nil:
 		platformSpec = hyperv1.PlatformSpec{
 			Type: hyperv1.AgentPlatform,
@@ -301,12 +275,12 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				AgentNamespace: o.Agent.AgentNamespace,
 			},
 		}
-		services = o.getServicePublishingStrategyMappingByAPIServerAddress(o.Agent.APIServerAddress)
+		services = o.getServicePublishingStrategyMapping(false, o.Agent.ServicesPublishOpts)
 	case o.Kubevirt != nil:
 		platformSpec = hyperv1.PlatformSpec{
 			Type: hyperv1.KubevirtPlatform,
 		}
-		services = o.getServicePublishingStrategyMappingByAPIServerAddress(o.Kubevirt.APIServerAddress)
+		services = o.getServicePublishingStrategyMapping(false, o.Kubevirt.ServicesPublishOpts)
 	case o.Azure != nil:
 		credentialSecret := &corev1.Secret{
 			TypeMeta: metav1.TypeMeta{
@@ -339,32 +313,7 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				SecurityGroupName: o.Azure.SecurityGroupName,
 			},
 		}
-		services = []hyperv1.ServicePublishingStrategyMapping{
-			{
-				Service: hyperv1.APIServer,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.LoadBalancer,
-				},
-			},
-			{
-				Service: hyperv1.OAuthServer,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-			{
-				Service: hyperv1.Konnectivity,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-			{
-				Service: hyperv1.Ignition,
-				ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-					Type: hyperv1.Route,
-				},
-			},
-		}
+		services = o.getServicePublishingStrategyMapping(false, nil)
 
 	default:
 		panic("no platform specified")
@@ -565,44 +514,54 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 	}
 }
 
-func (o ExampleOptions) getServicePublishingStrategyMappingByAPIServerAddress(APIServerAddress string) []hyperv1.ServicePublishingStrategyMapping {
-	return []hyperv1.ServicePublishingStrategyMapping{
+func (o ExampleOptions) getServicePublishingStrategyMapping(isAWS bool, servicesPublishOpts *ExampleServicesPublishOptions) []hyperv1.ServicePublishingStrategyMapping {
+	result := []hyperv1.ServicePublishingStrategyMapping{
 		{
 			Service: hyperv1.APIServer,
 			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-				Type:     hyperv1.NodePort,
-				NodePort: &hyperv1.NodePortPublishingStrategy{Address: APIServerAddress},
+				Type: hyperv1.LoadBalancer,
 			},
 		},
 		{
 			Service: hyperv1.OAuthServer,
 			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-				Type:     hyperv1.NodePort,
-				NodePort: &hyperv1.NodePortPublishingStrategy{Address: APIServerAddress},
-			},
-		},
-		{
-			Service: hyperv1.OIDC,
-			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-				Type:     hyperv1.None,
-				NodePort: &hyperv1.NodePortPublishingStrategy{Address: APIServerAddress},
+				Type: hyperv1.Route,
 			},
 		},
 		{
 			Service: hyperv1.Konnectivity,
 			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-				Type:     hyperv1.NodePort,
-				NodePort: &hyperv1.NodePortPublishingStrategy{Address: APIServerAddress},
+				Type: hyperv1.Route,
 			},
 		},
 		{
 			Service: hyperv1.Ignition,
 			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
-				Type:     hyperv1.NodePort,
-				NodePort: &hyperv1.NodePortPublishingStrategy{Address: APIServerAddress},
+				Type: hyperv1.Route,
 			},
 		},
 	}
+	if isAWS {
+		oidc := hyperv1.ServicePublishingStrategyMapping{
+			Service: hyperv1.OIDC,
+			ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+				Type: hyperv1.S3,
+			},
+		}
+		result = append(result, oidc)
+		return result
+
+	}
+	if servicesPublishOpts != nil && servicesPublishOpts.UseNodePortPublishStrategy {
+		var nodePortStrategyMapping []hyperv1.ServicePublishingStrategyMapping
+		for _, val := range result {
+			val.ServicePublishingStrategy.Type = hyperv1.NodePort
+			val.ServicePublishingStrategy.NodePort = &hyperv1.NodePortPublishingStrategy{Address: servicesPublishOpts.APIServerAddress}
+			nodePortStrategyMapping = append(nodePortStrategyMapping, val)
+		}
+		result = nodePortStrategyMapping
+	}
+	return result
 }
 
 func (o ExampleOptions) EtcdEncryptionKeySecret() *corev1.Secret {

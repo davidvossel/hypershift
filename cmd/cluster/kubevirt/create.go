@@ -9,6 +9,7 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
 	apifixtures "github.com/openshift/hypershift/api/fixtures"
+	"github.com/openshift/hypershift/cmd/cluster/common"
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	"github.com/openshift/hypershift/cmd/log"
 )
@@ -21,9 +22,10 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	}
 
 	opts.KubevirtPlatform = core.KubevirtPlatformCreateOptions{
-		Memory:             "4Gi",
-		Cores:              2,
-		ContainerDiskImage: "",
+		ServicesPublishOpts: common.NewServicesPublishOptions(cmd),
+		Memory:              "4Gi",
+		Cores:               2,
+		ContainerDiskImage:  "",
 	}
 
 	cmd.Flags().StringVar(&opts.KubevirtPlatform.Memory, "memory", opts.KubevirtPlatform.Memory, "The amount of memory which is visible inside the Guest OS (type BinarySI, e.g. 5Gi, 100Mi)")
@@ -53,12 +55,6 @@ func CreateCluster(ctx context.Context, opts *core.CreateOptions) error {
 }
 
 func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtures.ExampleOptions, opts *core.CreateOptions) (err error) {
-	if opts.KubevirtPlatform.APIServerAddress == "" {
-		if opts.KubevirtPlatform.APIServerAddress, err = core.GetAPIServerAddressByNode(ctx); err != nil {
-			return err
-		}
-	}
-
 	if opts.NodePoolReplicas > -1 {
 		// TODO (nargaman): replace with official container image, after RFE-2501 is completed
 		// As long as there is no official container image
@@ -81,10 +77,15 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 	exampleOptions.BaseDomain = "example.com"
 
 	exampleOptions.Kubevirt = &apifixtures.ExampleKubevirtOptions{
-		APIServerAddress: opts.KubevirtPlatform.APIServerAddress,
-		Memory:           opts.KubevirtPlatform.Memory,
-		Cores:            opts.KubevirtPlatform.Cores,
-		Image:            opts.KubevirtPlatform.ContainerDiskImage,
+		Memory: opts.KubevirtPlatform.Memory,
+		Cores:  opts.KubevirtPlatform.Cores,
+		Image:  opts.KubevirtPlatform.ContainerDiskImage,
+	}
+	if opts.KubevirtPlatform.ServicesPublishOpts != nil {
+		exampleOptions.Kubevirt.ServicesPublishOpts, err = opts.KubevirtPlatform.ServicesPublishOpts.ExampleServicesPublishOpts(ctx, opts.Render)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

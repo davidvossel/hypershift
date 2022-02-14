@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-logr/logr"
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
+	"github.com/openshift/hypershift/cmd/cluster/common"
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	"github.com/openshift/hypershift/cmd/version"
 	"github.com/openshift/hypershift/test/e2e/podtimingcontroller"
@@ -210,6 +211,9 @@ func (o *options) DefaultClusterOptions() core.CreateOptions {
 			EndpointAccess:     o.configurableClusterOptions.AWSEndpointAccess,
 		},
 		KubevirtPlatform: core.KubevirtPlatformCreateOptions{
+			ServicesPublishOpts: &common.ServicesPublishOptions{
+				UseNodePortPublishStrategy: false,
+			},
 			ContainerDiskImage: o.configurableClusterOptions.KubeVirtContainerDiskImage,
 			Cores:              2,
 			Memory:             "4Gi",

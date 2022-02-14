@@ -14,16 +14,15 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
-	kubeclient "k8s.io/client-go/kubernetes"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apifixtures "github.com/openshift/hypershift/api/fixtures"
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
+	"github.com/openshift/hypershift/cmd/cluster/common"
 	"github.com/openshift/hypershift/cmd/log"
 	"github.com/openshift/hypershift/cmd/util"
 	"github.com/openshift/hypershift/cmd/version"
@@ -65,19 +64,19 @@ type CreateOptions struct {
 }
 
 type AgentPlatformCreateOptions struct {
-	APIServerAddress string
-	AgentNamespace   string
+	ServicesPublishOpts *common.ServicesPublishOptions
+	AgentNamespace      string
 }
 
 type NonePlatformCreateOptions struct {
-	APIServerAddress string
+	ServicesPublishOpts *common.ServicesPublishOptions
 }
 
 type KubevirtPlatformCreateOptions struct {
-	APIServerAddress   string
-	Memory             string
-	Cores              uint32
-	ContainerDiskImage string
+	ServicesPublishOpts *common.ServicesPublishOptions
+	Memory              string
+	Cores               uint32
+	ContainerDiskImage  string
 }
 
 type AWSPlatformOptions struct {
@@ -239,39 +238,6 @@ func apply(ctx context.Context, exampleOptions *apifixtures.ExampleOptions, rend
 		return nil
 	}
 	return nil
-}
-
-func GetAPIServerAddressByNode(ctx context.Context) (string, error) {
-	// Fetch a single node and determine possible DNS or IP entries to use
-	// for external node-port communication.
-	// Possible values are considered with the following priority based on the address type:
-	// - NodeExternalDNS
-	// - NodeExternalIP
-	// - NodeInternalIP
-	apiServerAddress := ""
-	kubeClient := kubeclient.NewForConfigOrDie(util.GetConfigOrDie())
-	nodes, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return "", fmt.Errorf("unable to fetch node objects: %w", err)
-	}
-	if len(nodes.Items) < 1 {
-		return "", fmt.Errorf("no node objects found: %w", err)
-	}
-	addresses := map[corev1.NodeAddressType]string{}
-	for _, address := range nodes.Items[0].Status.Addresses {
-		addresses[address.Type] = address.Address
-	}
-	for _, addrType := range []corev1.NodeAddressType{corev1.NodeExternalDNS, corev1.NodeExternalIP, corev1.NodeInternalIP} {
-		if address, exists := addresses[addrType]; exists {
-			apiServerAddress = address
-			break
-		}
-	}
-	if apiServerAddress == "" {
-		return "", fmt.Errorf("node %q does not expose any IP addresses, this should not be possible", nodes.Items[0].Name)
-	}
-	log.Log.Info(fmt.Sprintf("detected %q from node %q as external-api-server-address", apiServerAddress, nodes.Items[0].Name))
-	return apiServerAddress, nil
 }
 
 func Validate(ctx context.Context, opts *CreateOptions) error {
