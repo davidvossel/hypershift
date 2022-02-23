@@ -74,7 +74,11 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		infraID = fmt.Sprintf("%s-%s", opts.Name, utilrand.String(5))
 	}
 	exampleOptions.InfraID = infraID
-	exampleOptions.BaseDomain = "example.com"
+	if opts.BaseDomain == "" {
+		exampleOptions.BaseDomain = "example.com"
+	} else {
+		exampleOptions.BaseDomain = opts.BaseDomain
+	}
 
 	exampleOptions.Kubevirt = &apifixtures.ExampleKubevirtOptions{
 		Memory: opts.KubevirtPlatform.Memory,
