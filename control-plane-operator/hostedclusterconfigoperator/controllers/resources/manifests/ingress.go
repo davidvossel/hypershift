@@ -5,6 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	routev1 "github.com/openshift/api/route/v1"
 )
 
 func IngressDefaultIngressController() *operatorv1.IngressController {
@@ -29,6 +30,33 @@ func IngressCert(ns string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "ingress-crt",
+			Namespace: ns,
+		},
+	}
+}
+
+func IngressDefaultRouterNodePortService() *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "router-nodeport-default",
+			Namespace: "openshift-ingress",
+		},
+	}
+}
+
+func IngressDefaultRouterNodePortManagementRoute(ns string) *routev1.Route {
+	return &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-ingress",
+			Namespace: ns,
+		},
+	}
+}
+
+func IngressDefaultRouterNodePortManagementService(ns string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-ingress",
 			Namespace: ns,
 		},
 	}

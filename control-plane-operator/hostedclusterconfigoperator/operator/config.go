@@ -100,6 +100,7 @@ func Mgr(cfg, cpConfig *rest.Config, namespace string) ctrl.Manager {
 		NewCache: cache.BuilderWithOptions(cache.Options{
 			SelectorsByObject: cache.SelectorsByObject{
 				&corev1.Namespace{}:        allSelector,
+				&corev1.Service{}:          allSelector,
 				&configv1.Infrastructure{}: allSelector,
 				&configv1.DNS{}:            allSelector,
 				&configv1.Ingress{}:        allSelector,

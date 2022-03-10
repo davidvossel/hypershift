@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	imageregistryv1 "github.com/openshift/api/imageregistry/v1"
+	routev1 "github.com/openshift/api/route/v1"
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/azure"
 	cpomanifests "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
@@ -45,6 +46,7 @@ import (
 	"github.com/openshift/hypershift/support/upsert"
 	"github.com/openshift/hypershift/support/util"
 	operatorsv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 const (
@@ -209,7 +211,7 @@ func (r *reconciler) reconcile(ctx context.Context) error {
 		log.Info("reconciling registry config")
 		registryConfig := manifests.Registry()
 		if _, err := r.CreateOrUpdate(ctx, r.client, registryConfig, func() error {
-			registry.ReconcileRegistryConfig(registryConfig, r.platformType == hyperv1.NonePlatform)
+			registry.ReconcileRegistryConfig(registryConfig, r.platformType)
 			return nil
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to reconcile imageregistry config: %w", err))
@@ -564,6 +566,75 @@ func (r *reconciler) reconcileIngressController(ctx context.Context, hcp *hyperv
 			errs = append(errs, fmt.Errorf("failed to reconcile default ingress controller cert: %w", err))
 		}
 	}
+
+	switch p.PlatformType {
+	case hyperv1.KubevirtPlatform:
+		// manifests for default ingress nodeport on guest cluster
+		defaultIngressNodePortService := manifests.IngressDefaultRouterNodePortService()
+		detectedHTTPSNodePort := int32(0)
+		if err := r.client.Get(ctx, client.ObjectKeyFromObject(defaultIngressNodePortService), defaultIngressNodePortService); err != nil {
+			errs = append(errs, fmt.Errorf("failed to get default ingress router's node port service: %w", err))
+		} else {
+			for _, port := range defaultIngressNodePortService.Spec.Ports {
+				if port.Port == 443 {
+					detectedHTTPSNodePort = port.NodePort
+					break
+				}
+			}
+			if detectedHTTPSNodePort == 0 {
+				errs = append(errs, fmt.Errorf("failed to detect node port for default ingress router's node port service: %w", err))
+			}
+		}
+
+		// Manifests for route
+		cpRoute := manifests.IngressDefaultRouterNodePortManagementRoute(hcp.Namespace)
+		// Manifests for clusterIP on management cluster
+		cpService := manifests.IngressDefaultRouterNodePortManagementService(hcp.Namespace)
+
+		if detectedHTTPSNodePort != 0 {
+			if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpService, func() error {
+				cpService.Spec = corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       "https-443",
+							Protocol:   corev1.ProtocolTCP,
+							Port:       443,
+							TargetPort: intstr.FromInt(int(detectedHTTPSNodePort)),
+						},
+					},
+					Selector: map[string]string{
+						"kubevirt.io": "virt-launcher",
+					},
+					Type: corev1.ServiceTypeClusterIP,
+				}
+
+				return nil
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile default ingress route's service:  %w", err))
+			}
+
+			if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpRoute, func() error {
+				cpRoute.Spec = routev1.RouteSpec{
+					Host:           fmt.Sprintf("data.apps.%s.%s", hcp.Name, hcp.Spec.DNS.BaseDomain),
+					WildcardPolicy: routev1.WildcardPolicySubdomain,
+					TLS: &routev1.TLSConfig{
+						Termination: routev1.TLSTerminationPassthrough,
+					},
+					Port: &routev1.RoutePort{
+						TargetPort: intstr.FromString("https-443"),
+					},
+					To: routev1.RouteTargetReference{
+						Kind: "Service",
+						Name: cpService.Name,
+					},
+				}
+				return nil
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile default ingress route:  %w", err))
+			}
+		}
+	}
+
 	return errors.NewAggregate(errs)
 }
 

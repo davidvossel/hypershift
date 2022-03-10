@@ -103,9 +103,37 @@ func ReconcileRole(role *rbacv1.Role, ownerRef config.OwnerRef) error {
 			APIGroups: []string{corev1.SchemeGroupVersion.Group},
 			Resources: []string{
 				"secrets",
-				"services",
 			},
 			Verbs: []string{
+				"get",
+				"list",
+				"watch",
+			},
+		},
+		{
+			APIGroups: []string{corev1.SchemeGroupVersion.Group},
+			Resources: []string{"services"},
+			Verbs: []string{
+				"create",
+				"delete",
+				"patch",
+				"update",
+				"get",
+				"list",
+				"watch",
+			},
+		},
+		{
+			APIGroups: []string{"route.openshift.io"},
+			Resources: []string{
+				"routes/custom-host",
+				"routes",
+			},
+			Verbs: []string{
+				"create",
+				"delete",
+				"patch",
+				"update",
 				"get",
 				"list",
 				"watch",

@@ -68,7 +68,20 @@ func ReconcileIngressToRouteControllerClusterRole(r *rbacv1.ClusterRole) error {
 	r.Rules = []rbacv1.PolicyRule{
 		{
 			APIGroups: []string{""},
-			Resources: []string{"secrets", "services"},
+			Resources: []string{"services"},
+			Verbs: []string{
+				"create",
+				"delete",
+				"patch",
+				"update",
+				"get",
+				"list",
+				"watch",
+			},
+		},
+		{
+			APIGroups: []string{""},
+			Resources: []string{"secrets"},
 			Verbs: []string{
 				"get",
 				"list",
@@ -93,7 +106,10 @@ func ReconcileIngressToRouteControllerClusterRole(r *rbacv1.ClusterRole) error {
 		},
 		{
 			APIGroups: []string{"route.openshift.io"},
-			Resources: []string{"routes"},
+			Resources: []string{
+				"routes",
+				"routes/custom-host",
+			},
 			Verbs: []string{
 				"create",
 				"delete",
