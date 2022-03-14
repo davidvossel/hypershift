@@ -24,15 +24,23 @@ func ReconcileInfrastructure(infra *configv1.Infrastructure, hcp *hyperv1.Hosted
 	apiServerAddress := hcp.Status.ControlPlaneEndpoint.Host
 	apiServerPort := hcp.Status.ControlPlaneEndpoint.Port
 
-	infra.Spec.PlatformSpec.Type = configv1.PlatformType(hcp.Spec.Platform.Type)
+	var platformType hyperv1.PlatformType
+
+	if hcp.Spec.Platform.Type == hyperv1.KubevirtPlatform {
+		platformType = hyperv1.NonePlatform
+	} else {
+		platformType = hcp.Spec.Platform.Type
+	}
+
+	infra.Spec.PlatformSpec.Type = configv1.PlatformType(platformType)
 	infra.Status.APIServerInternalURL = fmt.Sprintf("https://%s:%d", apiServerAddress, apiServerPort)
 	infra.Status.APIServerURL = fmt.Sprintf("https://%s:%d", apiServerAddress, apiServerPort)
 	infra.Status.EtcdDiscoveryDomain = BaseDomain(hcp)
 	infra.Status.InfrastructureName = hcp.Spec.InfraID
 	infra.Status.ControlPlaneTopology = configv1.ExternalTopologyMode
-	infra.Status.Platform = configv1.PlatformType(hcp.Spec.Platform.Type)
+	infra.Status.Platform = configv1.PlatformType(platformType)
 	infra.Status.PlatformStatus = &configv1.PlatformStatus{
-		Type: configv1.PlatformType(hcp.Spec.Platform.Type),
+		Type: configv1.PlatformType(platformType),
 	}
 
 	switch hcp.Spec.InfrastructureAvailabilityPolicy {
