@@ -2,9 +2,9 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	capikubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
 const (
@@ -413,11 +413,67 @@ type PowerVSNodePoolPlatform struct {
 	ImageDeletePolicy string `json:"imageDeletePolicy,omitempty"`
 }
 
+// KubevirtCompute contains values associated with the virtual compute hardware requested for the VM.
+type KubevirtCompute struct {
+	// Memory represents how much guest memory the VM should have
+	//
+	// +optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+
+	// Memory represents how many cores the guest VM should have
+	//
+	// +optional
+	Cores *uint32 `json:"cores,omitempty"`
+}
+
+// KubevirtPersistentVolume containes the values involved with provisioning persistent storage for a KubeVirt VM.
+type KubevirtPersistentVolume struct {
+	// Size is the size of the persistent storage volume
+	//
+	// +optional
+	Size *resource.Quantity `json:"size,omitempty"`
+	// StorageClass is the storageClass used for the underlying PVC that hosts the volume
+	//
+	// +optional
+	StorageClass *string `json:"storageClass,omitempty"`
+}
+
+// KubevirtRootVolume represents the volume that the rhcos disk will be stored and run from.
+type KubevirtRootVolume struct {
+	// Image represents what rhcos image to use for the node pool
+	Image *KubevirtDiskImage `json:"diskImage,omitempty"`
+
+	// KubevirtVolumeTypes represents of type of storage to run the image on
+	//
+	// +optional
+	KubevirtVolumeTypes `json:",inline"`
+}
+
+// KubevirtVolumeTypes represents what kind of storage to use for a KubeVirt VM volume
+type KubevirtVolumeTypes struct {
+	// Persistent volume type means the VM's storage is backed by a PVC
+	// VMs that use persistent volumes can survive disruption events like restart and eviction
+	//
+	// +optional
+	Persistent *KubevirtPersistentVolume `json:"persistent,omitempty"`
+}
+
+// KubevirtDiskImage contains values representing where the rhcos image is located
+type KubevirtDiskImage struct {
+	// ContainerDiskImage is a string representing the container image that holds the root disk
+	ContainerDiskImage *string `json:"containerDiskImage,omitempty"`
+}
+
 // KubevirtNodePoolPlatform specifies the configuration of a NodePool when operating
 // on KubeVirt platform.
 type KubevirtNodePoolPlatform struct {
-	// NodeTemplate Spec contains the VirtualMachineInstance specification.
-	NodeTemplate *capikubevirt.VirtualMachineTemplateSpec `json:"nodeTemplate,omitempty"`
+	// RootVolume represents values associated with the VM volume that will host rhcos
+	RootVolume *KubevirtRootVolume `json:"rootVolume,omitempty"`
+
+	// Compute contains values representing the virtual hardware requested for the VM
+	//
+	// +optional
+	Compute *KubevirtCompute `json:"compute,omitempty"`
 }
 
 // AWSNodePoolPlatform specifies the configuration of a NodePool when operating

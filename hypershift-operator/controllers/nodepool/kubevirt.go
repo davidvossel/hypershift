@@ -1,39 +1,168 @@
 package nodepool
 
 import (
+	"fmt"
+
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubevirtv1 "kubevirt.io/api/core/v1"
+	"kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	capikubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
-func kubevirtMachineTemplateSpec(nodePool *hyperv1.NodePool) *capikubevirt.KubevirtMachineTemplateSpec {
-	nodePoolNameLabelKey := "hypershift.kubevirt.io/node-pool-name"
+const (
+	defaultMemory       = "4Gi"
+	defaultCores        = uint32(2)
+	defaultVolumeSizeGi = 16
+)
 
-	vmTemplate := nodePool.Spec.Platform.Kubevirt.NodeTemplate
+func virtualMachineTemplateBase(kvPlatform *hyperv1.KubevirtNodePoolPlatform) *capikubevirt.VirtualMachineTemplateSpec {
 
-	if vmTemplate.Spec.Template.Spec.Affinity == nil {
-		vmTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{
-			PodAntiAffinity: &corev1.PodAntiAffinity{
-				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
-					{
-						Weight: int32(100),
-						PodAffinityTerm: corev1.PodAffinityTerm{
-							LabelSelector: &metav1.LabelSelector{
-								MatchExpressions: []metav1.LabelSelectorRequirement{
-									{
-										Key:      nodePoolNameLabelKey,
-										Operator: metav1.LabelSelectorOpIn,
-										Values:   []string{nodePool.Name},
+	rootVolumeName := "rhcos"
+	runAlways := kubevirtv1.RunStrategyAlways
+	memory := apiresource.MustParse(defaultMemory)
+	cores := defaultCores
+	pullMethod := v1beta1.RegistryPullNode
+
+	image := ""
+
+	volumeSize := apiresource.MustParse(fmt.Sprintf("%vGi", defaultVolumeSizeGi))
+
+	if kvPlatform.Compute != nil {
+		if kvPlatform.Compute.Memory != nil {
+			memory = *kvPlatform.Compute.Memory
+		}
+		if kvPlatform.Compute.Cores != nil {
+			cores = *kvPlatform.Compute.Cores
+		}
+	}
+	if kvPlatform.RootVolume != nil {
+		if kvPlatform.RootVolume.Image != nil && kvPlatform.RootVolume.Image.ContainerDiskImage != nil {
+			image = *kvPlatform.RootVolume.Image.ContainerDiskImage
+		}
+
+		if kvPlatform.RootVolume.Persistent != nil && kvPlatform.RootVolume.Persistent.Size != nil {
+			volumeSize = *kvPlatform.RootVolume.Persistent.Size
+		}
+	}
+
+	imageContainerURL := fmt.Sprintf("docker://%s", image)
+
+	template := &capikubevirt.VirtualMachineTemplateSpec{
+		Spec: kubevirtv1.VirtualMachineSpec{
+			RunStrategy: &runAlways,
+			Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{
+				Spec: kubevirtv1.VirtualMachineInstanceSpec{
+					Domain: kubevirtv1.DomainSpec{
+						CPU:    &kubevirtv1.CPU{Cores: cores},
+						Memory: &kubevirtv1.Memory{Guest: &memory},
+						Devices: kubevirtv1.Devices{
+							Interfaces: []kubevirtv1.Interface{
+								{
+									Name: "default",
+									InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+										Bridge: &kubevirtv1.InterfaceBridge{},
 									},
 								},
 							},
-							TopologyKey: "kubernetes.io/hostname",
+						},
+					},
+					Networks: []kubevirtv1.Network{
+						{
+							Name: "default",
+							NetworkSource: kubevirtv1.NetworkSource{
+								Pod: &kubevirtv1.PodNetwork{},
+							},
 						},
 					},
 				},
 			},
-		}
+		},
+	}
+
+	template.Spec.Template.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
+		{
+			Name: rootVolumeName,
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+	}
+
+	template.Spec.Template.Spec.Volumes = []kubevirtv1.Volume{
+		{
+			Name: rootVolumeName,
+			VolumeSource: kubevirtv1.VolumeSource{
+				DataVolume: &kubevirtv1.DataVolumeSource{
+					Name: rootVolumeName,
+				},
+			},
+		},
+	}
+
+	dataVolume := kubevirtv1.DataVolumeTemplateSpec{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: rootVolumeName,
+		},
+		Spec: v1beta1.DataVolumeSpec{
+			Source: &v1beta1.DataVolumeSource{
+				Registry: &v1beta1.DataVolumeSourceRegistry{
+					URL:        &imageContainerURL,
+					PullMethod: &pullMethod,
+				},
+			},
+		},
+	}
+
+	dataVolume.Spec.Storage = &v1beta1.StorageSpec{
+		Resources: corev1.ResourceRequirements{
+			Requests: map[corev1.ResourceName]apiresource.Quantity{
+				corev1.ResourceStorage: volumeSize,
+			},
+		},
+	}
+
+	if kvPlatform.RootVolume != nil &&
+		kvPlatform.RootVolume.Persistent != nil &&
+		kvPlatform.RootVolume.Persistent.StorageClass != nil {
+		dataVolume.Spec.Storage.StorageClassName = kvPlatform.RootVolume.Persistent.StorageClass
+	}
+
+	template.Spec.DataVolumeTemplates = []kubevirtv1.DataVolumeTemplateSpec{dataVolume}
+
+	return template
+}
+
+func kubevirtMachineTemplateSpec(nodePool *hyperv1.NodePool) *capikubevirt.KubevirtMachineTemplateSpec {
+	nodePoolNameLabelKey := "hypershift.kubevirt.io/node-pool-name"
+
+	vmTemplate := virtualMachineTemplateBase(nodePool.Spec.Platform.Kubevirt)
+
+	vmTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{
+		PodAntiAffinity: &corev1.PodAntiAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+				{
+					Weight: int32(100),
+					PodAffinityTerm: corev1.PodAffinityTerm{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      nodePoolNameLabelKey,
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{nodePool.Name},
+								},
+							},
+						},
+						TopologyKey: "kubernetes.io/hostname",
+					},
+				},
+			},
+		},
 	}
 
 	if vmTemplate.ObjectMeta.Labels == nil {
