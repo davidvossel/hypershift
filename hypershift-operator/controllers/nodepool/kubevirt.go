@@ -2,6 +2,7 @@ package nodepool
 
 import (
 	"fmt"
+	"strings"
 
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -18,15 +19,13 @@ const (
 	defaultVolumeSizeGi = 16
 )
 
-func virtualMachineTemplateBase(kvPlatform *hyperv1.KubevirtNodePoolPlatform) *capikubevirt.VirtualMachineTemplateSpec {
+func virtualMachineTemplateBase(image string, kvPlatform *hyperv1.KubevirtNodePoolPlatform) *capikubevirt.VirtualMachineTemplateSpec {
 
 	rootVolumeName := "rhcos"
 	runAlways := kubevirtv1.RunStrategyAlways
 	memory := apiresource.MustParse(defaultMemory)
 	cores := defaultCores
 	pullMethod := v1beta1.RegistryPullNode
-
-	image := ""
 
 	volumeSize := apiresource.MustParse(fmt.Sprintf("%vGi", defaultVolumeSizeGi))
 
@@ -38,17 +37,11 @@ func virtualMachineTemplateBase(kvPlatform *hyperv1.KubevirtNodePoolPlatform) *c
 			cores = *kvPlatform.Compute.Cores
 		}
 	}
-	if kvPlatform.RootVolume != nil {
-		if kvPlatform.RootVolume.Image != nil && kvPlatform.RootVolume.Image.ContainerDiskImage != nil {
-			image = *kvPlatform.RootVolume.Image.ContainerDiskImage
-		}
-
-		if kvPlatform.RootVolume.Persistent != nil && kvPlatform.RootVolume.Persistent.Size != nil {
-			volumeSize = *kvPlatform.RootVolume.Persistent.Size
-		}
+	if kvPlatform.RootVolume != nil &&
+		kvPlatform.RootVolume.Persistent != nil &&
+		kvPlatform.RootVolume.Persistent.Size != nil {
+		volumeSize = *kvPlatform.RootVolume.Persistent.Size
 	}
-
-	imageContainerURL := fmt.Sprintf("docker://%s", image)
 
 	template := &capikubevirt.VirtualMachineTemplateSpec{
 		Spec: kubevirtv1.VirtualMachineSpec{
@@ -109,14 +102,25 @@ func virtualMachineTemplateBase(kvPlatform *hyperv1.KubevirtNodePoolPlatform) *c
 		ObjectMeta: metav1.ObjectMeta{
 			Name: rootVolumeName,
 		},
-		Spec: v1beta1.DataVolumeSpec{
+	}
+
+	if strings.HasPrefix(image, "docker://") {
+		dataVolume.Spec = v1beta1.DataVolumeSpec{
 			Source: &v1beta1.DataVolumeSource{
 				Registry: &v1beta1.DataVolumeSourceRegistry{
-					URL:        &imageContainerURL,
+					URL:        &image,
 					PullMethod: &pullMethod,
 				},
 			},
-		},
+		}
+	} else {
+		dataVolume.Spec = v1beta1.DataVolumeSpec{
+			Source: &v1beta1.DataVolumeSource{
+				HTTP: &v1beta1.DataVolumeSourceHTTP{
+					URL: image,
+				},
+			},
+		}
 	}
 
 	dataVolume.Spec.Storage = &v1beta1.StorageSpec{
@@ -138,10 +142,10 @@ func virtualMachineTemplateBase(kvPlatform *hyperv1.KubevirtNodePoolPlatform) *c
 	return template
 }
 
-func kubevirtMachineTemplateSpec(nodePool *hyperv1.NodePool) *capikubevirt.KubevirtMachineTemplateSpec {
+func kubevirtMachineTemplateSpec(image string, nodePool *hyperv1.NodePool) *capikubevirt.KubevirtMachineTemplateSpec {
 	nodePoolNameLabelKey := "hypershift.kubevirt.io/node-pool-name"
 
-	vmTemplate := virtualMachineTemplateBase(nodePool.Spec.Platform.Kubevirt)
+	vmTemplate := virtualMachineTemplateBase(image, nodePool.Spec.Platform.Kubevirt)
 
 	vmTemplate.Spec.Template.Spec.Affinity = &corev1.Affinity{
 		PodAntiAffinity: &corev1.PodAntiAffinity{
