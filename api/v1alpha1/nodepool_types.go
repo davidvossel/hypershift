@@ -483,7 +483,9 @@ type KubevirtVolume struct {
 // KubevirtDiskImage contains values representing where the rhcos image is located
 type KubevirtDiskImage struct {
 	// ContainerDiskImage is a string representing the container image that holds the root disk
-	ContainerDiskImage *string `json:"containerDiskImage"`
+	//
+	// +optional
+	ContainerDiskImage *string `json:"containerDiskImage,omitempty"`
 }
 
 // KubevirtNodePoolPlatform specifies the configuration of a NodePool when operating

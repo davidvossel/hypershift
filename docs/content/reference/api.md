@@ -3894,6 +3894,7 @@ string
 </em>
 </td>
 <td>
+<em>(Optional)</em>
 <p>ContainerDiskImage is a string representing the container image that holds the root disk</p>
 </td>
 </tr>
