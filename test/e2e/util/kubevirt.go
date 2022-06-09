@@ -97,6 +97,7 @@ func createKubeVirtClusterWildcardRoute(t *testing.T, ctx context.Context, clien
 	detectedHTTPSNodePort := int32(0)
 	err := guestClient.Get(ctx, crclient.ObjectKeyFromObject(defaultIngressNodePortService), defaultIngressNodePortService)
 	g.Expect(err).NotTo(HaveOccurred(), "failed to get guest's default ingress NodePort service.")
+
 	for _, port := range defaultIngressNodePortService.Spec.Ports {
 		if port.Port == 443 {
 			detectedHTTPSNodePort = port.NodePort
