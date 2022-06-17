@@ -216,6 +216,15 @@ func preRolloutPlatformCheck(t *testing.T, ctx context.Context, client crclient.
 	}
 }
 
+func EnsurePlatformSpecificCreationHealth(t *testing.T, ctx context.Context, client crclient.Client, guestClient crclient.Client, platform hyperv1.PlatformType) {
+
+	switch platform {
+	case hyperv1.KubevirtPlatform:
+		t.Logf("ensuring guest cluster nodeport connectivity")
+		ensureGuestNodePortConnectivity(t, ctx, client, guestClient)
+	}
+}
+
 func WaitForImageRollout(t *testing.T, ctx context.Context, client crclient.Client, guestClient crclient.Client, hostedCluster *hyperv1.HostedCluster, image string) {
 	g := NewWithT(t)
 	start := time.Now()

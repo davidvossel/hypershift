@@ -10,6 +10,7 @@ import (
 	capikubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 
 	routev1 "github.com/openshift/api/route/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -158,4 +159,200 @@ func createKubeVirtClusterWildcardRoute(t *testing.T, ctx context.Context, clien
 	t.Logf("Created mgmt route for default tenant cluster ingress")
 	err = client.Create(ctx, cpRoute)
 	g.Expect(err).NotTo(HaveOccurred(), "failed to create guest clusters default apps route on mgmt cluster")
+}
+
+func renderEchoPod() *corev1.Pod {
+	echoPod := &corev1.Pod{}
+	echoPod.Name = "http-echo"
+	echoPod.Namespace = "default"
+	echoPod.ObjectMeta.Labels = map[string]string{
+		"app": "http-echo",
+	}
+	echoPod.Spec.Containers = []corev1.Container{
+		{
+			Name:  "echo-pod",
+			Image: "hashicorp/http-echo:0.2.3",
+			Args: []string{
+				"-text=echo",
+			},
+		},
+	}
+	return echoPod
+}
+
+func renderEchoNodePortService(nodePort int) *corev1.Service {
+
+	service := &corev1.Service{}
+	service.Name = "echo-service"
+	service.Namespace = "default"
+	service.Spec = corev1.ServiceSpec{
+		Type: "NodePort",
+		Selector: map[string]string{
+			"app": "http-echo",
+		},
+		Ports: []corev1.ServicePort{
+			{
+				// default port for the echo container
+				Port:     5678,
+				NodePort: int32(nodePort),
+			},
+		},
+	}
+
+	return service
+}
+
+func renderCurlJob(addresses []string, hostNet bool, onGuestCluster bool) *batchv1.Job {
+	template := corev1.PodSpec{
+		HostNetwork:   hostNet,
+		Containers:    []corev1.Container{},
+		RestartPolicy: "Never",
+	}
+
+	if onGuestCluster {
+		// This makes sure we schedule the curl pod on a node separate from the echo pod.
+		// This is important because we've had connectivity issues that are covered up
+		// when cross guest node connectivity is not exercised.
+		template.Affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "app",
+									Values:   []string{"http-echo"},
+									Operator: metav1.LabelSelectorOpIn,
+								},
+							},
+						},
+						TopologyKey: "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	} else {
+		nodePoolNameLabelKey := "hypershift.kubevirt.io/node-pool-name"
+
+		// this makes sure we schedule the curl pod on an infra node that
+		// is not running a KubeVirt VMI. This is necessary because we have
+		// had connectivity issues which are hidden when the endpoint attempting
+		// to contact the guest is on the same infra node the guest VM exists on.
+		template.Affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      nodePoolNameLabelKey,
+									Operator: metav1.LabelSelectorOpExists,
+								},
+							},
+						},
+						TopologyKey: "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	}
+
+	for i, addr := range addresses {
+		template.Containers = append(template.Containers, corev1.Container{
+			Name:  fmt.Sprintf("curl-%d", i),
+			Image: "fedora:35",
+			Command: []string{
+				"curl",
+				addr,
+			},
+		})
+	}
+
+	backoff := int32(4)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "nodeport-curl-test-hostnetwork",
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: &backoff,
+			Template: corev1.PodTemplateSpec{
+				Spec: template,
+			},
+		},
+	}
+	return job
+}
+
+func hasJobSucceeded(t *testing.T, ctx context.Context, job *batchv1.Job, guestClient crclient.Client) bool {
+
+	updatedJob := &batchv1.Job{}
+	err := guestClient.Get(ctx, crclient.ObjectKeyFromObject(job), updatedJob)
+	if err != nil {
+		t.Errorf("Failed to get job: %v", err)
+		return false
+	}
+
+	for _, condition := range updatedJob.Status.Conditions {
+		if condition.Type == batchv1.JobComplete && condition.Status == corev1.ConditionTrue {
+			t.Logf("Guest NodePort connectivity test passed from guest host network")
+			return true
+		}
+	}
+	return false
+}
+
+func ensureGuestNodePortConnectivity(t *testing.T, ctx context.Context, client crclient.Client, guestClient crclient.Client) {
+
+	g := NewWithT(t)
+
+	nodePort := 32700
+
+	guestNodes := &corev1.NodeList{}
+	err := guestClient.List(ctx, guestNodes)
+	g.Expect(err).NotTo(HaveOccurred(), "failed to list guest nodes")
+
+	curlAddresses := []string{}
+	for _, node := range guestNodes.Items {
+		ip := ""
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == corev1.NodeInternalIP {
+				ip = addr.Address
+			}
+		}
+		g.Expect(ip).NotTo(Equal(""), fmt.Sprintf("no internal ip found for guest node %s", node.Name))
+		curlAddresses = append(curlAddresses, fmt.Sprintf("%s:%d", ip, nodePort))
+	}
+
+	// This echo pod simply exists to return a successful 200ok
+	echoPod := renderEchoPod()
+
+	// This nodeport service routes to the echo pod.
+	service := renderEchoNodePortService(nodePort)
+
+	// This job executes a curl command that ensures every guest cluster
+	// node ip can be used successfully to connect to the echo pod through
+	// the nodeport service.
+	guestCurlJob := renderCurlJob(curlAddresses, true, true)
+
+	// This job executes a curl command that ensure every guest cluster
+	// node ip can be used successfully from the infra cluster. This helps
+	// prove ingress will work successfully as it is routed through the
+	// infra cluster to the guest cluster
+	infraCurlJob := renderCurlJob(curlAddresses, true, false)
+
+	err = guestClient.Create(ctx, echoPod)
+	g.Expect(err).NotTo(HaveOccurred(), "failed to create echo pod")
+	err = guestClient.Create(ctx, service)
+	g.Expect(err).NotTo(HaveOccurred(), "failed to create echo nodeport")
+	err = guestClient.Create(ctx, guestCurlJob)
+	g.Expect(err).NotTo(HaveOccurred(), "failed to create guest echo curl test job")
+	err = guestClient.Create(ctx, infraCurlJob)
+	g.Expect(err).NotTo(HaveOccurred(), "failed to create infra echo curl test job")
+
+	err = wait.PollImmediateWithContext(ctx, 10*time.Second, 5*time.Minute, func(ctx context.Context) (done bool, err error) {
+
+		return hasJobSucceeded(t, ctx, guestCurlJob, guestClient) && hasJobSucceeded(t, ctx, infraCurlJob, guestClient), nil
+	})
+	g.Expect(err).NotTo(HaveOccurred(), "curl pod failed connectivity tests for NodePort from guest node host network")
 }
