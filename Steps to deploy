@@ -1,0 +1,14 @@
+Steps to deploy
+*create in tenant a ns
+*create in tenant a service account for the node + roles and scc
+*create in infra a service account + roles and scc
+*create a kubeconfig for the infra service account
+*create in tenant a secret from the infra kubeconfig
+*create in tanant the configmap
+*create in tenant the daemonset
+*create in tenant a service account for the controller + roles and scc
+*create in infra the configmap
+*create in infra the deployment
+
+
+WIP: csi-driver-kubevirt

@@ -10,14 +10,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/powervs"
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/kubevirt_assets"
+
 	"github.com/blang/semver"
 	"github.com/go-logr/logr"
 	routev1 "github.com/openshift/api/route/v1"
-	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/autoscaler"
+
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/machineapprover"
+
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/registryoperator"
+
+	prometheusoperatorv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
+
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/aws"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/azure"
-	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/powervs"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/clusterpolicy"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cno"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/common"
@@ -31,7 +62,6 @@ import (
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/kas"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/kcm"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/konnectivity"
-	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/machineapprover"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/mcs"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/oapi"
@@ -39,7 +69,6 @@ import (
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/ocm"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/olm"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/pki"
-	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/registryoperator"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/scheduler"
 	"github.com/openshift/hypershift/support/capabilities"
 	"github.com/openshift/hypershift/support/config"
@@ -49,25 +78,7 @@ import (
 	"github.com/openshift/hypershift/support/releaseinfo"
 	"github.com/openshift/hypershift/support/upsert"
 	"github.com/openshift/hypershift/support/util"
-	prometheusoperatorv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/util/workqueue"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -78,6 +89,8 @@ const (
 	ImageStreamAutoscalerImage             = "cluster-autoscaler"
 	ImageStreamClusterMachineApproverImage = "cluster-machine-approver"
 )
+
+var NoopReconcile controllerutil.MutateFn = func() error { return nil }
 
 type InfrastructureStatus struct {
 	APIHost                 string
@@ -118,6 +131,16 @@ type HostedControlPlaneReconciler struct {
 	DefaultIngressDomain          string
 	MetricsSet                    metrics.MetricsSet
 	reconcileInfrastructureStatus func(ctx context.Context, hcp *hyperv1.HostedControlPlane) (InfrastructureStatus, error)
+
+	RestConfig *rest.Config
+
+	TenantClientSet     kubernetes.Clientset
+	TenantDynamicClient dynamic.Interface
+	TenantRestConfig    *rest.Config
+
+	TenantCrcClient crclient.Client
+
+	InfraCrcClient crclient.Client
 }
 
 func (r *HostedControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpdate upsert.CreateOrUpdateFN) error {
@@ -796,6 +819,17 @@ func (r *HostedControlPlaneReconciler) update(ctx context.Context, hostedControl
 		return fmt.Errorf("failed to ensure control plane: %w", err)
 	}
 
+	if hostedControlPlane.Spec.Platform.Type == hyperv1.KubevirtPlatform {
+		if err := r.reconcileKubevirtCSIDriver(ctx, hostedControlPlane); err != nil {
+			return fmt.Errorf("failed to reconcile kubevirt csi driver: %w", err)
+		}
+	}
+	// Reconcile CsiDriverOperator
+	// r.Log.Info("Reconciling csi driver operator")
+	// if err := r.reconcileCSIDriverOperator(ctx, hostedControlPlane); err != nil {
+	// 	return fmt.Errorf("failed to reconcile csi driver operator: %w", err)
+	// }
+
 	return nil
 }
 
@@ -953,6 +987,10 @@ func (r *HostedControlPlaneReconciler) reconcileOLMPackageServerService(ctx cont
 	return nil
 }
 
+func (r *HostedControlPlaneReconciler) reconcileCSIDriverOperatorService(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
+	return nil
+}
+
 func (r *HostedControlPlaneReconciler) reconcileInfrastructure(ctx context.Context, hcp *hyperv1.HostedControlPlane, createOrUpdate upsert.CreateOrUpdateFN) error {
 	if hcp.Spec.Services == nil {
 		return fmt.Errorf("service publishing strategy undefined")
@@ -974,6 +1012,9 @@ func (r *HostedControlPlaneReconciler) reconcileInfrastructure(ctx context.Conte
 	}
 	if err := r.reconcileOLMPackageServerService(ctx, hcp, createOrUpdate); err != nil {
 		return fmt.Errorf("failed to reconcile OLM PackageServer service: %w", err)
+	}
+	if err := r.reconcileCSIDriverOperatorService(ctx, hcp); err != nil {
+		return fmt.Errorf("failed to reconcile CSI driver operator service: %w", err)
 	}
 
 	return nil
@@ -1408,6 +1449,107 @@ func (r *HostedControlPlaneReconciler) reconcilePKI(ctx context.Context, hcp *hy
 
 	return nil
 }
+
+func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
+	// var crdResource = schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}
+	// r.TenantDynamicClient.Resource(crdResource).Create(ctx, kubevirt_assets.CsiDriverCRD.(*unstructured.Unstructured), metav1.CreateOptions{})
+
+	// apixClient, err := apixv1beta1client.NewForConfig(r.TenantRestConfig)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to build rest config: %w", err)
+	// }
+	// crds := apixClient.CustomResourceDefinitions()
+	// crds.Cr
+	infraNamespace := hcp.Namespace
+	// infraUrl := r.RestConfig.APIPath
+	// infraCertificateAuthorityData := string(r.RestConfig.CAData)
+	// infraToken := "TODO"
+	infraKubeconfigSecretName := "tenant-controller-kubeconfig"
+
+	tenantNamespace := "openshift-cluster-csi-drivers"
+	// tenantUrl := r.TenantRestConfig.APIPath
+	// tenantCertificateAuthorityData := string(r.TenantRestConfig.CAData)
+	// tenantToken := "TODO"
+	// tenantKubeconfigSecretName := "infra-kubeconfig"
+
+	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateTenantNamespace(tenantNamespace), &crclient.CreateOptions{})
+
+	for _, object := range kubevirt_assets.GenerateTenantNodeServiceAccountResources(tenantNamespace) {
+		r.TenantCrcClient.Create(ctx, object, &crclient.CreateOptions{})
+	}
+
+	infraServiceaccount, infraRole, infraRoleBinding := kubevirt_assets.GenerateInfraServiceAccountResources(infraNamespace)
+	r.InfraCrcClient.Create(ctx, infraServiceaccount, &crclient.CreateOptions{})
+	r.InfraCrcClient.Create(ctx, infraRole, &crclient.CreateOptions{})
+	r.InfraCrcClient.Create(ctx, infraRoleBinding, &crclient.CreateOptions{})
+
+	var infraReconciledServiceAccount *corev1.ServiceAccount
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(infraServiceaccount), infraReconciledServiceAccount)
+	if err != nil {
+		return err
+	}
+
+	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateTenantConfigmap(tenantNamespace, infraNamespace))
+
+	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateDaemonset(tenantNamespace))
+
+	for _, object := range kubevirt_assets.GenerateTenantControllerServiceAccountResources(tenantNamespace) {
+		r.TenantCrcClient.Create(ctx, object, &crclient.CreateOptions{})
+	}
+
+	tenantControllerKubeconfigSecret := &corev1.Secret{}
+	tenantControllerCA := &corev1.Secret{}
+	pki.ReconcileServiceAccountKubeconfig(tenantControllerKubeconfigSecret, tenantControllerCA, hcp, tenantNamespace, "kubevirt-csi-controller-sa")
+	tenantControllerKubeconfig := tenantControllerKubeconfigSecret.Data[util.KubeconfigKey]
+
+	// tenantControllerKubeconfig := kubevirt_assets.GenerateKubeconfig(tenantUrl, tenantNamespace, tenantCertificateAuthorityData, tenantToken)
+	infraKubeconfigSecret := kubevirt_assets.GenerateKubeconfigSecret(infraKubeconfigSecretName, infraNamespace, string(tenantControllerKubeconfig))
+	r.InfraCrcClient.Create(ctx, infraKubeconfigSecret, &crclient.CreateOptions{})
+
+	r.InfraCrcClient.Create(ctx, kubevirt_assets.GenerateInfraConfigmap(infraNamespace), &crclient.CreateOptions{})
+
+	r.InfraCrcClient.Create(ctx, kubevirt_assets.GenerateController(infraNamespace), &crclient.CreateOptions{})
+
+	return nil
+
+}
+
+// func (r *HostedControlPlaneReconciler) reconcileCSIDriverOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
+// 	// csiDriverOperatorManifests.
+// 	switch hcp.Spec.Platform.Type {
+// 	case hyperv1.KubevirtPlatform:
+// 		_, err := r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorServiceAccount(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator ServiceAccount: %w", err)
+// 		}
+
+// 		_, err = r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorRole(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator role: %w", err)
+// 		}
+
+// 		_, err = r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorRoleBinding(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator rolebinding: %w", err)
+// 		}
+
+// 		_, err = r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorClusterRole(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator clusterrole: %w", err)
+// 		}
+
+// 		_, err = r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorClusterRoleBinding(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator clusterrolebinding: %w", err)
+// 		}
+
+// 		_, err = r.CreateOrUpdate(ctx, r, csidriveroperator.OperatorDeployment(hcp.Namespace), NoopReconcile)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to reconcile csi driver operator deployment: %w", err)
+// 		}
+// 	}
+// 	return nil
+// }
 
 func (r *HostedControlPlaneReconciler) reconcileCloudProviderConfig(ctx context.Context, hcp *hyperv1.HostedControlPlane, createOrUpdate upsert.CreateOrUpdateFN) error {
 	switch hcp.Spec.Platform.Type {
