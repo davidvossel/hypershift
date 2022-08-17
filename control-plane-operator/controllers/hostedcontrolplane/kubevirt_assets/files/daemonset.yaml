@@ -26,14 +26,14 @@ spec:
             privileged: true
             allowPrivilegeEscalation: true
           imagePullPolicy: Always
-          image: quay.io/isaacdorfman/kubevirt-csi-driver:latest
+          image: quay.io/dvossel/kubevirt-csi-driver:latest
           args:
             - "--endpoint=unix:/csi/csi.sock"
-            - "--namespace=kubevirt-csi-driver"
             - "--node-name=$(KUBE_NODE_NAME)"
             - "--infra-cluster-namespace=$(INFRACLUSTER_NAMESPACE)"
             - "--infra-cluster-kubeconfig=/var/run/secrets/infracluster/kubeconfig"
-            - "--run-node-service"
+            - "--run-node-service=true"
+            - "--run-controller-service=false"
             - --v=5
           env:
             - name: KUBE_NODE_NAME

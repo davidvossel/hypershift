@@ -27,14 +27,14 @@ spec:
       containers:
         - name: csi-driver
           imagePullPolicy: Always
-          image: quay.io/isaacdorfman/kubevirt-csi-driver:latest
+          image: quay.io/dvossel/kubevirt-csi-driver:latest
           args:
             - "--endpoint=$(CSI_ENDPOINT)"
-            - "--namespace=kubevirt-csi-driver"
             - "--infra-cluster-namespace=$(INFRACLUSTER_NAMESPACE)"
             - "--tenant-cluster-kubeconfig=/var/run/secrets/tenantcluster/kubeconfig"
             - "--infra-cluster-labels=$(INFRACLUSTER_LABELS)"
-            - "--run-controller-service"
+            - "--run-node-service=false"
+            - "--run-controller-service=true"
             - --v=5
           ports:
             - name: healthz
