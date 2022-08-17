@@ -16,5 +16,5 @@ WIP: csi-driver-kubevirt
 
 hypershift install --hypershift-image quay.io/isaacdorfman/control-plane-operator:v1.0
 
-hypershift install --hypershift-image $IMG
+./bin/hypershift install --hypershift-image $IMG
 quay.io/dvossel/kubevirt-csi-driver:latest
