@@ -3,9 +3,11 @@ package hostedcontrolplane
 import (
 	"context"
 	crand "crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -70,6 +72,7 @@ import (
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/olm"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/pki"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/scheduler"
+	hyperapi "github.com/openshift/hypershift/support/api"
 	"github.com/openshift/hypershift/support/capabilities"
 	"github.com/openshift/hypershift/support/config"
 	"github.com/openshift/hypershift/support/events"
@@ -78,6 +81,7 @@ import (
 	"github.com/openshift/hypershift/support/releaseinfo"
 	"github.com/openshift/hypershift/support/upsert"
 	"github.com/openshift/hypershift/support/util"
+	"k8s.io/client-go/tools/clientcmd"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -819,11 +823,42 @@ func (r *HostedControlPlaneReconciler) update(ctx context.Context, hostedControl
 		return fmt.Errorf("failed to ensure control plane: %w", err)
 	}
 
+	r.Log.Info("hcp namespace is: " + hostedControlPlane.Namespace)
+
 	if hostedControlPlane.Spec.Platform.Type == hyperv1.KubevirtPlatform {
+		r.Log.Info("Reconciling kubevirt csi driver")
 		if err := r.reconcileKubevirtCSIDriver(ctx, hostedControlPlane); err != nil {
 			return fmt.Errorf("failed to reconcile kubevirt csi driver: %w", err)
 		}
 	}
+
+	var tenantAdminSecret *corev1.Secret = &corev1.Secret{}
+	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: hostedControlPlane.Namespace, Name: hostedControlPlane.Namespace + "-admin-kubeconfig"}, tenantAdminSecret); err != nil {
+		return fmt.Errorf("failed to get tenant kubeconfig secret: %w", err)
+	}
+	var tanantKubeConfig []byte
+	base64.StdEncoding.Encode(tanantKubeConfig, tenantAdminSecret.Data["kubeconfig"])
+	tenantRestConfig, err := clientcmd.RESTConfigFromKubeConfig(tanantKubeConfig)
+	if err != nil {
+		r.Log.Error(err, "unable to create a Kubernetes rest client for tenant")
+		os.Exit(1)
+	}
+	tenantClientSet, err := kubernetes.NewForConfig(tenantRestConfig)
+	if err != nil {
+		r.Log.Error(err, "Failed to create tenant clientset")
+		os.Exit(1)
+	}
+
+	tenantCrcClient, err := crclient.New(tenantRestConfig, crclient.Options{Scheme: hyperapi.Scheme})
+	if err != nil {
+		r.Log.Error(err, "Failed to create tenant controller-runtime client")
+		os.Exit(1)
+	}
+
+	r.TenantRestConfig = tenantRestConfig
+	r.TenantClientSet = *tenantClientSet
+	r.TenantCrcClient = tenantCrcClient
+
 	// Reconcile CsiDriverOperator
 	// r.Log.Info("Reconciling csi driver operator")
 	// if err := r.reconcileCSIDriverOperator(ctx, hostedControlPlane); err != nil {

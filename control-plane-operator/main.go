@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,11 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
+
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -216,27 +213,6 @@ func NewStartCommand() *cobra.Command {
 			os.Exit(1)
 		}
 
-		var tenantAdminSecret *corev1.Secret
-		mgr.GetClient().Get(ctx, types.NamespacedName{Namespace: namespace, Name: "admin-kubeconfig"}, tenantAdminSecret)
-		var tanantKubeConfig []byte //:= base64.StdEncoding.EncodeToString(tenantAdminSecret.Data["kubeconfig"])
-		base64.StdEncoding.Encode(tanantKubeConfig, tenantAdminSecret.Data["kubeconfig"])
-		tenantRestConfig, err := clientcmd.RESTConfigFromKubeConfig(tanantKubeConfig)
-		if err != nil {
-			setupLog.Error(err, "unable to create a Kubernetes rest client for tenant")
-			os.Exit(1)
-		}
-		tenantClientSet, err := kubernetes.NewForConfig(tenantRestConfig)
-		if err != nil {
-			setupLog.Error(err, "Failed to create tenant clientset")
-			os.Exit(1)
-		}
-
-		tenantCrcClient, err := crclient.New(tenantRestConfig, crclient.Options{Scheme: hyperapi.Scheme})
-		if err != nil {
-			setupLog.Error(err, "Failed to create tenant controller-runtime client")
-			os.Exit(1)
-		}
-
 		infraCrcClient, err := crclient.New(restConfig, crclient.Options{Scheme: hyperapi.Scheme})
 		if err != nil {
 			setupLog.Error(err, "Failed to create infra controller-runtime client")
@@ -384,7 +360,7 @@ func NewStartCommand() *cobra.Command {
 			setupLog.Error(err, "invalid metrics set")
 			os.Exit(1)
 		}
-		setupLog.Info("Using metrics set", "set", metricsSet.String())
+		setupLog.Info("Using metrics set3", "set", metricsSet.String())
 		if err := (&hostedcontrolplane.HostedControlPlaneReconciler{
 			Client:                        mgr.GetClient(),
 			ManagementClusterCapabilities: mgmtClusterCaps,
@@ -394,62 +370,61 @@ func NewStartCommand() *cobra.Command {
 			DefaultIngressDomain:          defaultIngressDomain,
 			MetricsSet:                    metricsSet,
 			RestConfig:                    restConfig,
-			TenantClientSet:               *tenantClientSet,
-			TenantCrcClient:               tenantCrcClient,
 			InfraCrcClient:                infraCrcClient,
-			TenantRestConfig:              restConfig,
 		}).SetupWithManager(mgr, upsert.New(enableCIDebugOutput).CreateOrUpdate); err != nil {
+			setupLog.Error(err, "Failed setting up manager")
 			os.Exit(1)
+		}
 
-			if mgmtClusterCaps.Has(capabilities.CapabilityRoute) {
-				controllerName := "PrivateKubeAPIServerServiceObserver"
-				if err := (&awsprivatelink.PrivateServiceObserver{
-					Client:                 mgr.GetClient(),
-					ControllerName:         controllerName,
-					ServiceNamespace:       namespace,
-					ServiceName:            manifests.KubeAPIServerPrivateServiceName,
-					HCPNamespace:           namespace,
-					CreateOrUpdateProvider: upsert.New(enableCIDebugOutput),
-				}).SetupWithManager(ctx, mgr); err != nil {
-					controllerName := awsprivatelink.ControllerName(manifests.KubeAPIServerPrivateServiceName)
-					setupLog.Error(err, "unable to create controller", "controller", controllerName)
-					os.Exit(1)
-				}
-
-				controllerName = "PrivateIngressServiceObserver"
-				if err := (&awsprivatelink.PrivateServiceObserver{
-					Client:                 mgr.GetClient(),
-					ControllerName:         controllerName,
-					ServiceNamespace:       namespace,
-					ServiceName:            manifests.PrivateRouterService("").Name,
-					HCPNamespace:           namespace,
-					CreateOrUpdateProvider: upsert.New(enableCIDebugOutput),
-				}).SetupWithManager(ctx, mgr); err != nil {
-					controllerName := awsprivatelink.ControllerName(manifests.PrivateRouterService("").Name)
-					setupLog.Error(err, "unable to create controller", "controller", controllerName)
-					os.Exit(1)
-				}
-
-				if err := (&awsprivatelink.AWSEndpointServiceReconciler{}).SetupWithManager(mgr); err != nil {
-					setupLog.Error(err, "unable to create controller", "controller", "aws-endpoint-service")
-					os.Exit(1)
-				}
-			}
-
-			if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-				setupLog.Error(err, "unable to set up health check")
-				os.Exit(1)
-			}
-			if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-				setupLog.Error(err, "unable to set up ready check")
+		if mgmtClusterCaps.Has(capabilities.CapabilityRoute) {
+			controllerName := "PrivateKubeAPIServerServiceObserver"
+			if err := (&awsprivatelink.PrivateServiceObserver{
+				Client:                 mgr.GetClient(),
+				ControllerName:         controllerName,
+				ServiceNamespace:       namespace,
+				ServiceName:            manifests.KubeAPIServerPrivateServiceName,
+				HCPNamespace:           namespace,
+				CreateOrUpdateProvider: upsert.New(enableCIDebugOutput),
+			}).SetupWithManager(ctx, mgr); err != nil {
+				controllerName := awsprivatelink.ControllerName(manifests.KubeAPIServerPrivateServiceName)
+				setupLog.Error(err, "unable to create controller", "controller", controllerName)
 				os.Exit(1)
 			}
 
-			setupLog.Info("starting manager")
-			if err := mgr.Start(ctx); err != nil {
-				setupLog.Error(err, "problem running manager")
+			controllerName = "PrivateIngressServiceObserver"
+			if err := (&awsprivatelink.PrivateServiceObserver{
+				Client:                 mgr.GetClient(),
+				ControllerName:         controllerName,
+				ServiceNamespace:       namespace,
+				ServiceName:            manifests.PrivateRouterService("").Name,
+				HCPNamespace:           namespace,
+				CreateOrUpdateProvider: upsert.New(enableCIDebugOutput),
+			}).SetupWithManager(ctx, mgr); err != nil {
+				controllerName := awsprivatelink.ControllerName(manifests.PrivateRouterService("").Name)
+				setupLog.Error(err, "unable to create controller", "controller", controllerName)
+				os.Exit(1)
+			}
+
+			if err := (&awsprivatelink.AWSEndpointServiceReconciler{}).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "aws-endpoint-service")
+				os.Exit(1)
 			}
 		}
+
+		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+			setupLog.Error(err, "unable to set up health check")
+			os.Exit(1)
+		}
+		if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+			setupLog.Error(err, "unable to set up ready check")
+			os.Exit(1)
+		}
+
+		setupLog.Info("starting manager")
+		if err := mgr.Start(ctx); err != nil {
+			setupLog.Error(err, "problem running manager")
+		}
 	}
+
 	return cmd
 }

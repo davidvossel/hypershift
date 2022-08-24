@@ -18,3 +18,8 @@ hypershift install --hypershift-image quay.io/isaacdorfman/control-plane-operato
 
 ./bin/hypershift install --hypershift-image $IMG
 quay.io/dvossel/kubevirt-csi-driver:latest
+
+
+export IMG=quay.io/isaacdorfman/hypershift:latest
+make docker-build && docker push $IMG
+oc get pod -n clusters-isaac-tenant | grep control-plane-operator
