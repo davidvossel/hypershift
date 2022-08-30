@@ -1501,7 +1501,7 @@ func GenerateKubeconfig(serverUrl string, namespace string, certificateAuthority
 func GenerateKubeconfigSecret(secretName string, secretNamespace string, kubeconfig string) crclient.Object {
 	mustacheRenderTemplate := map[string]string{
 		"SECRET_NAME":      secretName,
-		"SECRET_NAMESPACE": secretName,
+		"SECRET_NAMESPACE": secretNamespace,
 		"KUBECONFIG":       kubeconfig,
 	}
 	secretBytes := getContents("kubeconfig_secret_template.yaml")

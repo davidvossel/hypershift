@@ -13,7 +13,3 @@ rules:
 - apiGroups: ["subresources.kubevirt.io"]
   resources: ["virtualmachineinstances/addvolume", "virtualmachineinstances/removevolume"]
   verbs: ["update"]
-- apiGroups: ["security.openshift.io"]
-  resources: ["securitycontextconstraints"]
-  resourceNames: ["privileged"]
-  verbs: ["use"]

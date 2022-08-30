@@ -1574,14 +1574,20 @@ func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Co
 		}
 	}
 
+	rootCA := manifests.RootCASecret(hcp.Namespace)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
+		return fmt.Errorf("failed to get root ca cert secret: %w", err)
+	}
 	tenantControllerKubeconfigSecret := &corev1.Secret{}
-	tenantControllerCA := &corev1.Secret{}
-	pki.ReconcileServiceAccountKubeconfig(tenantControllerKubeconfigSecret, tenantControllerCA, hcp, tenantNamespace, "kubevirt-csi-controller-sa")
-	tenantControllerKubeconfig := tenantControllerKubeconfigSecret.Data[util.KubeconfigKey]
+	err = pki.ReconcileServiceAccountKubeconfig(tenantControllerKubeconfigSecret, rootCA, hcp, tenantNamespace, "kubevirt-csi-controller-sa")
+	if err != nil {
+		return err
+	}
 
-	// tenantControllerKubeconfig := kubevirt_assets.GenerateKubeconfig(tenantUrl, tenantNamespace, tenantCertificateAuthorityData, tenantToken)
-	infraKubeconfigSecret := kubevirt_assets.GenerateKubeconfigSecret(infraKubeconfigSecretName, infraNamespace, string(tenantControllerKubeconfig))
-	_, err = createOrUpdate(ctx, r.InfraCrcClient, infraKubeconfigSecret, NoopReconcile)
+	tenantControllerKubeconfigSecret.Name = infraKubeconfigSecretName
+	tenantControllerKubeconfigSecret.Namespace = infraNamespace
+
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, tenantControllerKubeconfigSecret, NoopReconcile)
 	if err != nil {
 		return err
 	}

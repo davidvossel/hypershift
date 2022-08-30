@@ -67,8 +67,7 @@ spec:
             - --csi-address=$(ADDRESS)
             - --default-fstype=ext4
             - --v=5
-            - "--kubeconfig"
-            - "/var/run/secrets/tenantcluster/kubeconfig"
+            - "--kubeconfig=/var/run/secrets/tenantcluster/kubeconfig"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -82,8 +81,7 @@ spec:
           args:
             - --csi-address=$(ADDRESS)
             - --v=5
-            - "--kubeconfig"
-            - "/var/run/secrets/tenantcluster/kubeconfig"
+            - "--kubeconfig=/var/run/secrets/tenantcluster/kubeconfig"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
