@@ -3,7 +3,6 @@ package hostedcontrolplane
 import (
 	"context"
 	crand "crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/big"
@@ -18,6 +17,8 @@ import (
 	"github.com/blang/semver"
 	"github.com/go-logr/logr"
 	routev1 "github.com/openshift/api/route/v1"
+
+	// securityv1 "github.com/openshift/api/security/v1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/autoscaler"
 
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/machineapprover"
@@ -825,19 +826,14 @@ func (r *HostedControlPlaneReconciler) update(ctx context.Context, hostedControl
 
 	r.Log.Info("hcp namespace is: " + hostedControlPlane.Namespace)
 
-	if hostedControlPlane.Spec.Platform.Type == hyperv1.KubevirtPlatform {
-		r.Log.Info("Reconciling kubevirt csi driver")
-		if err := r.reconcileKubevirtCSIDriver(ctx, hostedControlPlane); err != nil {
-			return fmt.Errorf("failed to reconcile kubevirt csi driver: %w", err)
-		}
-	}
-
 	var tenantAdminSecret *corev1.Secret = &corev1.Secret{}
-	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: hostedControlPlane.Namespace, Name: hostedControlPlane.Namespace + "-admin-kubeconfig"}, tenantAdminSecret); err != nil {
+	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: hostedControlPlane.Namespace, Name: "admin-kubeconfig"}, tenantAdminSecret); err != nil {
 		return fmt.Errorf("failed to get tenant kubeconfig secret: %w", err)
 	}
+	r.Log.Info("base64 kubeconfig is: " + string(tenantAdminSecret.Data["kubeconfig"]))
 	var tanantKubeConfig []byte
-	base64.StdEncoding.Encode(tanantKubeConfig, tenantAdminSecret.Data["kubeconfig"])
+	// base64.StdEncoding.Encode(tanantKubeConfig, tenantAdminSecret.Data["kubeconfig"])
+	tanantKubeConfig = tenantAdminSecret.Data["kubeconfig"]
 	tenantRestConfig, err := clientcmd.RESTConfigFromKubeConfig(tanantKubeConfig)
 	if err != nil {
 		r.Log.Error(err, "unable to create a Kubernetes rest client for tenant")
@@ -864,6 +860,13 @@ func (r *HostedControlPlaneReconciler) update(ctx context.Context, hostedControl
 	// if err := r.reconcileCSIDriverOperator(ctx, hostedControlPlane); err != nil {
 	// 	return fmt.Errorf("failed to reconcile csi driver operator: %w", err)
 	// }
+
+	if hostedControlPlane.Spec.Platform.Type == hyperv1.KubevirtPlatform {
+		r.Log.Info("Reconciling kubevirt csi driver")
+		if err := r.reconcileKubevirtCSIDriver(ctx, hostedControlPlane, createOrUpdate); err != nil {
+			return fmt.Errorf("failed to reconcile kubevirt csi driver: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -1485,7 +1488,7 @@ func (r *HostedControlPlaneReconciler) reconcilePKI(ctx context.Context, hcp *hy
 	return nil
 }
 
-func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
+func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Context, hcp *hyperv1.HostedControlPlane, createOrUpdate upsert.CreateOrUpdateFN) error {
 	// var crdResource = schema.GroupVersionResource{Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions"}
 	// r.TenantDynamicClient.Resource(crdResource).Create(ctx, kubevirt_assets.CsiDriverCRD.(*unstructured.Unstructured), metav1.CreateOptions{})
 
@@ -1506,30 +1509,69 @@ func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Co
 	// tenantCertificateAuthorityData := string(r.TenantRestConfig.CAData)
 	// tenantToken := "TODO"
 	// tenantKubeconfigSecretName := "infra-kubeconfig"
-
-	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateTenantNamespace(tenantNamespace), &crclient.CreateOptions{})
-
-	for _, object := range kubevirt_assets.GenerateTenantNodeServiceAccountResources(tenantNamespace) {
-		r.TenantCrcClient.Create(ctx, object, &crclient.CreateOptions{})
-	}
-
-	infraServiceaccount, infraRole, infraRoleBinding := kubevirt_assets.GenerateInfraServiceAccountResources(infraNamespace)
-	r.InfraCrcClient.Create(ctx, infraServiceaccount, &crclient.CreateOptions{})
-	r.InfraCrcClient.Create(ctx, infraRole, &crclient.CreateOptions{})
-	r.InfraCrcClient.Create(ctx, infraRoleBinding, &crclient.CreateOptions{})
-
-	var infraReconciledServiceAccount *corev1.ServiceAccount
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(infraServiceaccount), infraReconciledServiceAccount)
+	_, err := createOrUpdate(ctx, r.TenantCrcClient, kubevirt_assets.GenerateTenantNamespace(tenantNamespace), NoopReconcile)
 	if err != nil {
 		return err
 	}
 
-	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateTenantConfigmap(tenantNamespace, infraNamespace))
+	for _, object := range kubevirt_assets.GenerateTenantNodeServiceAccountResources(tenantNamespace) {
+		_, err := createOrUpdate(ctx, r.TenantCrcClient, object, NoopReconcile)
+		if err != nil {
+			return err
+		}
+	}
 
-	r.TenantCrcClient.Create(ctx, kubevirt_assets.GenerateDaemonset(tenantNamespace))
+	infraServiceaccount, infraRole, infraRoleBinding := kubevirt_assets.GenerateInfraServiceAccountResources(infraNamespace)
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, infraServiceaccount, NoopReconcile)
+	if err != nil {
+		return err
+	}
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, infraRole, NoopReconcile)
+	if err != nil {
+		return err
+	}
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, infraRoleBinding, NoopReconcile)
+	if err != nil {
+		return err
+	}
+
+	//TODO
+	// r.Log.Info("Updating scc")
+	// scc := &securityv1.SecurityContextConstraints{}
+	// err := r.InfraCrcClient.Get(ctx, crclient.ObjectKey{Name: "privileged"}, scc)
+	// if err != nil {
+	// 	return err
+	// }
+	// patch := client.MergeFrom(scc.DeepCopy())
+	// serviceAccountGlobalName := "system:serviceaccount:" + infraNamespace + ":kubevirt-csi"
+	// r.Log.Info("Patching scc for serviceaccount: ", serviceAccountGlobalName)
+	// scc.Users = append(scc.Users, serviceAccountGlobalName)
+	// err = r.InfraCrcClient.Patch(ctx, scc, patch)
+	// if err != nil {
+	// 	return err
+	// }
+
+	var infraReconciledServiceAccount *corev1.ServiceAccount = &corev1.ServiceAccount{}
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(infraServiceaccount), infraReconciledServiceAccount)
+	if err != nil {
+		return err
+	}
+
+	_, err = createOrUpdate(ctx, r.TenantCrcClient, kubevirt_assets.GenerateTenantConfigmap(tenantNamespace, infraNamespace), NoopReconcile)
+	if err != nil {
+		return err
+	}
+
+	_, err = createOrUpdate(ctx, r.TenantCrcClient, kubevirt_assets.GenerateDaemonset(tenantNamespace), NoopReconcile)
+	if err != nil {
+		return err
+	}
 
 	for _, object := range kubevirt_assets.GenerateTenantControllerServiceAccountResources(tenantNamespace) {
-		r.TenantCrcClient.Create(ctx, object, &crclient.CreateOptions{})
+		_, err = createOrUpdate(ctx, r.TenantCrcClient, object, NoopReconcile)
+		if err != nil {
+			return err
+		}
 	}
 
 	tenantControllerKubeconfigSecret := &corev1.Secret{}
@@ -1539,11 +1581,20 @@ func (r *HostedControlPlaneReconciler) reconcileKubevirtCSIDriver(ctx context.Co
 
 	// tenantControllerKubeconfig := kubevirt_assets.GenerateKubeconfig(tenantUrl, tenantNamespace, tenantCertificateAuthorityData, tenantToken)
 	infraKubeconfigSecret := kubevirt_assets.GenerateKubeconfigSecret(infraKubeconfigSecretName, infraNamespace, string(tenantControllerKubeconfig))
-	r.InfraCrcClient.Create(ctx, infraKubeconfigSecret, &crclient.CreateOptions{})
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, infraKubeconfigSecret, NoopReconcile)
+	if err != nil {
+		return err
+	}
 
-	r.InfraCrcClient.Create(ctx, kubevirt_assets.GenerateInfraConfigmap(infraNamespace), &crclient.CreateOptions{})
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, kubevirt_assets.GenerateInfraConfigmap(infraNamespace), NoopReconcile)
+	if err != nil {
+		return err
+	}
 
-	r.InfraCrcClient.Create(ctx, kubevirt_assets.GenerateController(infraNamespace), &crclient.CreateOptions{})
+	_, err = createOrUpdate(ctx, r.InfraCrcClient, kubevirt_assets.GenerateController(infraNamespace), NoopReconcile)
+	if err != nil {
+		return err
+	}
 
 	return nil
 

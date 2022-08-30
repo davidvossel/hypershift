@@ -13,7 +13,6 @@ spec:
       labels:
         app: kubevirt-csi-driver
     spec:
-      hostNetwork: true
       serviceAccount: kubevirt-csi
       priorityClassName: system-cluster-critical
       nodeSelector:
@@ -36,11 +35,6 @@ spec:
             - "--run-node-service=false"
             - "--run-controller-service=true"
             - --v=5
-          ports:
-            - name: healthz
-              # Due to hostNetwork, this port is open on a node!
-              containerPort: 10301
-              protocol: TCP
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock

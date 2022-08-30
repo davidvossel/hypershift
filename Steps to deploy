@@ -20,6 +20,20 @@ hypershift install --hypershift-image quay.io/isaacdorfman/control-plane-operato
 quay.io/dvossel/kubevirt-csi-driver:latest
 
 
-export IMG=quay.io/isaacdorfman/hypershift:latest
+export IMG=quay.io/isaacdorfman/hypershift:v1.14 && \
 make docker-build && docker push $IMG
 oc get pod -n clusters-isaac-tenant | grep control-plane-operator
+oc edit hostedcluster -n clusters isaac-tenant
+
+
+
+
+
+
+
+Grant service account kubevirt-csi in infra scc permissions.
+Add the system:serviceaccount:clusters-isaac-infra:kubevirt-csi serviceaccount to the privileged scc
+i.e: to the users field of this scc
+
+
+Remove redundant containers in controller
