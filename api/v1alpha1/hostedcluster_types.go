@@ -646,6 +646,23 @@ type PlatformSpec struct {
 	// +optional
 	// +immutable
 	PowerVS *PowerVSPlatformSpec `json:"powervs,omitempty"`
+
+	// KubeVirt defines KubeVirt specific settings for cluster components.
+	//
+	// +optional
+	// +immutable
+	Kubevirt *KubevirtPlatformSpec `json:"kubevirt,omitempty"`
+}
+
+// KubevirtPlatformSpec specifies configuration for kubevirt guest cluster installations
+type KubevirtPlatformSpec struct {
+	// AutoGenerateBaseDomain toggles whether or not an automatically
+	// generated base domain for the guest cluster should be used that
+	// is a subdomain of the management cluster's *apps DNS.
+	//
+	// +optional
+	// +immutable
+	AutoGenerateBaseDomain *bool `json:"autoGenerateBaseDomain"`
 }
 
 // AgentPlatformSpec specifies configuration for agent-based installations.

@@ -86,12 +86,6 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 	infraID := opts.InfraID
 	exampleOptions.InfraID = infraID
 
-	if opts.BaseDomain != "" {
-		exampleOptions.BaseDomain = opts.BaseDomain
-	} else {
-		exampleOptions.BaseDomain = "example.com"
-	}
-
 	exampleOptions.Kubevirt = &apifixtures.ExampleKubevirtOptions{
 		ServicePublishingStrategy: opts.KubevirtPlatform.ServicePublishingStrategy,
 		APIServerAddress:          opts.KubevirtPlatform.APIServerAddress,
@@ -102,5 +96,12 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		RootVolumeStorageClass:    opts.KubevirtPlatform.RootVolumeStorageClass,
 		RootVolumeAccessModes:     opts.KubevirtPlatform.RootVolumeAccessModes,
 	}
+
+	if opts.BaseDomain != "" {
+		exampleOptions.BaseDomain = opts.BaseDomain
+	} else {
+		exampleOptions.Kubevirt.AutoGenerateBaseDomain = true
+	}
+
 	return nil
 }

@@ -2627,6 +2627,19 @@ spec:
                           provider within IBM Cloud.
                         type: string
                     type: object
+                  kubevirt:
+                    description: KubeVirt defines KubeVirt specific settings for cluster
+                      components.
+                    properties:
+                      autoGenerateBaseDomain:
+                        description: AutoGenerateBaseDomain toggles whether or not
+                          an automatically generated base domain for the guest cluster
+                          should be used that is a subdomain of the management cluster's
+                          *apps DNS.
+                        type: boolean
+                    required:
+                    - autoGenerateBaseDomain
+                    type: object
                   powervs:
                     description: PowerVS specifies configuration for clusters running
                       on IBMCloud Power VS Service. This field is immutable. Once

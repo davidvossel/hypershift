@@ -269,6 +269,18 @@ func validateHostedClusterUpdate(new *hyperv1.HostedCluster, old *hyperv1.Hosted
 		old.Spec.Networking.APIServer.Port = new.Spec.Networking.APIServer.Port
 	}
 
+	// We default the basedomain for KubeVirt clusters, so we allow the baseDomain
+	// to go from unset to set, but no updates after basedomain is set.
+	if new.Spec.Platform.Type == hyperv1.KubevirtPlatform &&
+		new.Spec.Platform.Kubevirt != nil &&
+		new.Spec.Platform.Kubevirt.AutoGenerateBaseDomain != nil &&
+		*new.Spec.Platform.Kubevirt.AutoGenerateBaseDomain &&
+		new.Spec.DNS.BaseDomain != "" &&
+		old.Spec.DNS.BaseDomain == "" {
+
+		old.Spec.DNS.BaseDomain = new.Spec.DNS.BaseDomain
+	}
+
 	errs := validateStructEqual(new.Spec, old.Spec, field.NewPath("HostedCluster.spec"))
 
 	return errs.ToAggregate()

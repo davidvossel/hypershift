@@ -294,7 +294,8 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 		services = getServicePublishingStrategyMappingByAPIServerAddress(o.Agent.APIServerAddress, o.NetworkType)
 	case o.Kubevirt != nil:
 		platformSpec = hyperv1.PlatformSpec{
-			Type: hyperv1.KubevirtPlatform,
+			Type:     hyperv1.KubevirtPlatform,
+			Kubevirt: &hyperv1.KubevirtPlatformSpec{},
 		}
 		switch o.Kubevirt.ServicePublishingStrategy {
 		case "NodePort":
@@ -303,6 +304,10 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			services = getIngressServicePublishingStrategyMapping(o.NetworkType, o.ExternalDNSDomain != "")
 		default:
 			panic(fmt.Sprintf("service publishing type %s is not supported", o.Kubevirt.ServicePublishingStrategy))
+		}
+
+		if o.Kubevirt.AutoGenerateBaseDomain {
+			platformSpec.Kubevirt.AutoGenerateBaseDomain = &o.Kubevirt.AutoGenerateBaseDomain
 		}
 	case o.Azure != nil:
 		credentialSecret := &corev1.Secret{
