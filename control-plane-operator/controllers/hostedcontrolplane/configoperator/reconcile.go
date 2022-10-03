@@ -117,6 +117,7 @@ func ReconcileRole(role *rbacv1.Role, ownerRef config.OwnerRef) error {
 				"services",
 			},
 			Verbs: []string{
+				"create",
 				"get",
 				"list",
 				"watch",
@@ -129,6 +130,21 @@ func ReconcileRole(role *rbacv1.Role, ownerRef config.OwnerRef) error {
 				"machines",
 			},
 			Verbs: []string{
+				"get",
+				"patch",
+				"update",
+				"list",
+				"watch",
+			},
+		},
+		// This is needed by the KubeVirt platform in order to
+		// use a subdomain route for the guest cluster's default
+		// ingress
+		{
+			APIGroups: []string{"route.openshift.io"},
+			Resources: []string{"routes"},
+			Verbs: []string{
+				"create",
 				"get",
 				"patch",
 				"update",
