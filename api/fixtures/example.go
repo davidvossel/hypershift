@@ -306,8 +306,8 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			panic(fmt.Sprintf("service publishing type %s is not supported", o.Kubevirt.ServicePublishingStrategy))
 		}
 
-		if o.Kubevirt.AutoGenerateBaseDomain {
-			platformSpec.Kubevirt.AutoGenerateBaseDomain = &o.Kubevirt.AutoGenerateBaseDomain
+		if o.Kubevirt.BaseDomainPassthrough {
+			platformSpec.Kubevirt.BaseDomainPassthrough = &o.Kubevirt.BaseDomainPassthrough
 		}
 	case o.Azure != nil:
 		credentialSecret := &corev1.Secret{

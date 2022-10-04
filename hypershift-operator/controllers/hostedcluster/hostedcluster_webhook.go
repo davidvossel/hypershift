@@ -273,8 +273,8 @@ func validateHostedClusterUpdate(new *hyperv1.HostedCluster, old *hyperv1.Hosted
 	// to go from unset to set, but no updates after basedomain is set.
 	if new.Spec.Platform.Type == hyperv1.KubevirtPlatform &&
 		new.Spec.Platform.Kubevirt != nil &&
-		new.Spec.Platform.Kubevirt.AutoGenerateBaseDomain != nil &&
-		*new.Spec.Platform.Kubevirt.AutoGenerateBaseDomain &&
+		new.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil &&
+		*new.Spec.Platform.Kubevirt.BaseDomainPassthrough &&
 		new.Spec.DNS.BaseDomain != "" &&
 		old.Spec.DNS.BaseDomain == "" {
 

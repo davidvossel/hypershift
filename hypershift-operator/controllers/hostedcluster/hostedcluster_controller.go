@@ -4108,7 +4108,7 @@ func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx c
 	}
 
 	// auto generate the basedomain by retrieving the default ingress *apps dns.
-	if hc.Spec.Platform.Kubevirt.AutoGenerateBaseDomain != nil && *hc.Spec.Platform.Kubevirt.AutoGenerateBaseDomain {
+	if hc.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil && *hc.Spec.Platform.Kubevirt.BaseDomainPassthrough {
 		// get base domain from default ingress of management cluster
 		defaultIngressOperator := manifests.IngressDefaultIngressController()
 		err := r.Client.Get(ctx, client.ObjectKeyFromObject(defaultIngressOperator), defaultIngressOperator)

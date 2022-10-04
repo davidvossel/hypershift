@@ -17,7 +17,7 @@ type ExampleKubevirtOptions struct {
 	RootVolumeSize            uint32
 	RootVolumeStorageClass    string
 	RootVolumeAccessModes     string
-	AutoGenerateBaseDomain    bool
+	BaseDomainPassthrough     bool
 }
 
 func ExampleKubeVirtTemplate(o *ExampleKubevirtOptions) *hyperv1.KubevirtNodePoolPlatform {

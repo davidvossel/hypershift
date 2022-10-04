@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,7 +34,7 @@ import (
 	operatorv1 "github.com/openshift/api/operator/v1"
 	hyperv1 "github.com/openshift/hypershift/api/v1alpha1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/cloud/azure"
-	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/rbac"
+
 	cpomanifests "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	alerts "github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/alerts"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/crd"
@@ -44,12 +43,12 @@ import (
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/kubeadminpassword"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/manifests"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/monitoring"
-	routev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/namespaces"
 	networkoperator "github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/network"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/oapi"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/oauth"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/olm"
+	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/rbac"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/controllers/resources/registry"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator/operator"
 	"github.com/openshift/hypershift/support/config"
@@ -470,89 +469,6 @@ func (r *reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	log.Info("reconciling observed configuration")
 	errs = append(errs, r.reconcileObservedConfiguration(ctx, hcp)...)
 
-	// TODO dvossel here.
-	// START -------------
-
-	// manifests for default ingress nodeport on guest cluster
-	defaultIngressNodePortService := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "router-nodeport-default",
-			Namespace: "openshift-ingress",
-		},
-	}
-
-	detectedHTTPSNodePort := int32(0)
-	err = r.client.Get(ctx, client.ObjectKeyFromObject(defaultIngressNodePortService), defaultIngressNodePortService)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("failed to retrieve guest cluster ingress NodePort: %w", err))
-	}
-	for _, port := range defaultIngressNodePortService.Spec.Ports {
-		if port.Port == 443 {
-			detectedHTTPSNodePort = port.NodePort
-			break
-		}
-	}
-
-	hcpNamespace := hcp.Namespace
-
-	// Manifests for clusterIP on management cluster
-	cpService := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-ingress",
-			Namespace: hcpNamespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "https-443",
-					Protocol:   corev1.ProtocolTCP,
-					Port:       443,
-					TargetPort: intstr.FromInt(int(detectedHTTPSNodePort)),
-				},
-			},
-			Selector: map[string]string{
-				"kubevirt.io": "virt-launcher",
-			},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	}
-
-	// Manifests for route
-	cpRoute := &routev1.Route{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-ingress",
-			Namespace: hcpNamespace,
-		},
-		Spec: routev1.RouteSpec{
-			Host:           fmt.Sprintf("data.apps.%s.%s", hcp.Name, hcp.Spec.DNS.BaseDomain),
-			WildcardPolicy: routev1.WildcardPolicySubdomain,
-			TLS: &routev1.TLSConfig{
-				Termination: routev1.TLSTerminationPassthrough,
-			},
-			Port: &routev1.RoutePort{
-				TargetPort: intstr.FromString("https-443"),
-			},
-			To: routev1.RouteTargetReference{
-				Kind: "Service",
-				Name: cpService.Name,
-			},
-		},
-	}
-
-	if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpService, func() error {
-		return nil
-	}); err != nil {
-		errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress service: %w", err))
-	}
-
-	if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpRoute, func() error {
-		return nil
-	}); err != nil {
-		errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress route: %w", err))
-	}
-
-	// END ---------------
-
 	// Delete the DNS operator deployment in the hosted cluster, if it is
 	// present there.  A separate DNS operator deployment runs as part of
 	// the hosted control-plane, but an upgraded cluster might still have
@@ -740,7 +656,6 @@ func (r *reconciler) reconcileRBAC(ctx context.Context) error {
 
 		manifestAndReconcile[*rbacv1.RoleBinding]{manifest: manifests.AuthenticatedReaderForAuthenticatedUserRolebinding, reconcile: rbac.ReconcileAuthenticatedReaderForAuthenticatedUserRolebinding},
 	}
-
 	var errs []error
 	for _, m := range rbac {
 		if err := m.upsert(ctx, r.client, r.CreateOrUpdate); err != nil {
@@ -772,6 +687,41 @@ func (r *reconciler) reconcileIngressController(ctx context.Context, hcp *hyperv
 			errs = append(errs, fmt.Errorf("failed to reconcile default ingress controller cert: %w", err))
 		}
 	}
+
+	// Default Ingress is passed through as a subdomain of the infra/mgmt cluster
+	// for KubeVirt when the BaseDomainPassthrough is in use.
+	if hcp.Spec.Platform.Type == hyperv1.KubevirtPlatform &&
+		hcp.Spec.Platform.Kubevirt != nil &&
+		hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil &&
+		*hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough {
+
+		defaultIngressNodePortService := manifests.IngressDefaultIngressNodePortService()
+		err := r.client.Get(ctx, client.ObjectKeyFromObject(defaultIngressNodePortService), defaultIngressNodePortService)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to retrieve guest cluster ingress NodePort: %w", err))
+		}
+
+		hcpNamespace := hcp.Namespace
+
+		// Manifests for infra/mgmt cluster passthrough service
+		cpService := manifests.IngressDefaultIngressPassthroughService(hcpNamespace)
+
+		// Manifests for infra/mgmt cluster passthrough routes
+		cpPassthroughRoute := manifests.IngressDefaultIngressPassthroughRoute(hcpNamespace)
+
+		if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpService, func() error {
+			return ingress.ReconcileDefaultIngressPassthroughService(cpService, defaultIngressNodePortService, hcp)
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough service: %w", err))
+		}
+
+		if _, err := r.CreateOrUpdate(ctx, r.cpClient, cpPassthroughRoute, func() error {
+			return ingress.ReconcileDefaultIngressPassthroughRoute(cpPassthroughRoute, cpService, hcp)
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough route: %w", err))
+		}
+	}
+
 	return errors.NewAggregate(errs)
 }
 

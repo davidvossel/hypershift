@@ -100,7 +100,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 	if opts.BaseDomain != "" {
 		exampleOptions.BaseDomain = opts.BaseDomain
 	} else {
-		exampleOptions.Kubevirt.AutoGenerateBaseDomain = true
+		exampleOptions.Kubevirt.BaseDomainPassthrough = true
 	}
 
 	return nil
