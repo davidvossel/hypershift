@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	utilpointer "k8s.io/utils/pointer"
@@ -236,6 +237,18 @@ func reconcileTenantNodeClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, saNam
 	return nil
 }
 
+func reconcileTenantDefaultStorageClass(sc *storagev1.StorageClass) error {
+	if sc.Annotations == nil {
+		sc.Annotations = map[string]string{}
+	}
+
+	sc.Annotations["storageclass.kubernetes.io/is-default-class"] = "true"
+	sc.Provisioner = "csi.kubevirt.io"
+	sc.Parameters = map[string]string{"bus": "scsi"}
+
+	return nil
+}
+
 func reconcileTenantDaemonset(ds *appsv1.DaemonSet, componentImages map[string]string) error {
 	ds.Spec = *daemonset.Spec.DeepCopy()
 
@@ -333,6 +346,14 @@ func ReconcileTenant(client crclient.Client, hcp *hyperv1.HostedControlPlane, ct
 	daemonSet := manifests.KubevirtCSIDriverDaemonSet(tenantNamespace)
 	_, err = createOrUpdate(ctx, client, daemonSet, func() error {
 		return reconcileTenantDaemonset(daemonSet, componentImages)
+	})
+	if err != nil {
+		return err
+	}
+
+	storageClass := manifests.KubevirtTenantDefaultStorageClass()
+	_, err = createOrUpdate(ctx, client, storageClass, func() error {
+		return reconcileTenantDefaultStorageClass(storageClass)
 	})
 	if err != nil {
 		return err

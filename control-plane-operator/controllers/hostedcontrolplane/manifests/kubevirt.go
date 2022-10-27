@@ -4,6 +4,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -130,6 +131,14 @@ func KubevirtCSIDriverTenantNamespace(ns string) *corev1.Namespace {
 	return &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: ns,
+		},
+	}
+}
+
+func KubevirtTenantDefaultStorageClass() *storagev1.StorageClass {
+	return &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kubevirt",
 		},
 	}
 }
