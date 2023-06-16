@@ -30,22 +30,24 @@ var (
 )
 
 func defaultImage(releaseImage *releaseinfo.ReleaseImage) (string, string, error) {
+
 	arch, foundArch := releaseImage.StreamMetadata.Architectures["x86_64"]
 	if !foundArch {
 		return "", "", fmt.Errorf("couldn't find OS metadata for architecture %q", "x84_64")
 	}
 
-	containerImage := arch.Images.Kubevirt.DigestRef
-	if containerImage == "" {
-		return "", "", fmt.Errorf("no kubevirt vm disk image present in release")
+	if arch.Images.Kubevirt.DigestRef != "" {
+		containerImage := arch.Images.Kubevirt.DigestRef
+		split := strings.Split(containerImage, "@")
+		if len(split) != 2 {
+			return "", "", fmt.Errorf("no kubevirt sha digest found for vm disk image")
+		}
+		return containerImage, split[1], nil
+	} else if arch.Images.Kubevirt.Release != "" && arch.Images.Kubevirt.Image != "" {
+		return fmt.Sprintf("%s:%s", arch.Images.Kubevirt.Image, arch.Images.Kubevirt.Release), arch.Images.Kubevirt.Release, nil
 	}
 
-	split := strings.Split(containerImage, "@")
-	if len(split) != 2 {
-		return "", "", fmt.Errorf("no kubevirt sha digest found for vm disk image")
-	}
-
-	return containerImage, split[1], nil
+	return "", "", fmt.Errorf("no kubevirt vm disk image present in release")
 }
 
 func unsupportedOpenstackDefaultImage(releaseImage *releaseinfo.ReleaseImage) (string, string, error) {
