@@ -382,7 +382,7 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to get KubeVirt external infra-cluster: %w", err)
 		}
-		err = kubevirtBootImage.CacheImage(ctx, kvInfraClient, nodePool, uid)
+		err = kubevirtBootImage.CacheImage(ctx, kvInfraClient.Client, nodePool, uid)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to create or validate KubeVirt image cache: %w", err)
 		}
@@ -1292,7 +1292,7 @@ func (r *NodePoolReconciler) deleteKubeVirtCache(ctx context.Context, nodePool *
 					ns = nodePool.Status.Platform.KubeVirt.Credentials.InfraNamespace
 				}
 
-				err = kubevirt.DeleteCache(ctx, cl, cacheName, ns)
+				err = kubevirt.DeleteCache(ctx, cl.Client, cacheName, ns)
 				if err != nil {
 					return err
 				}

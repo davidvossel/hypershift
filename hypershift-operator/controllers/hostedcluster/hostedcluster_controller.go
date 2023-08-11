@@ -446,6 +446,23 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, r.Client.Update(ctx, hcluster)
 	}
 
+	if hcluster.Spec.Platform.Type == hyperv1.KubevirtPlatform {
+		kvInfraClient, err := r.KubevirtInfraClients.DiscoverKubevirtClusterClient(ctx,
+			r.Client,
+			hcluster.Spec.InfraID,
+			hcluster.Spec.Platform.Kubevirt.Credentials,
+			hcluster.Namespace,
+			hcluster.Namespace)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		err = kvInfraClient.ValidateInfraVersioning()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Part one: update status
 
 	// Set kubeconfig status
@@ -4297,15 +4314,15 @@ func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx c
 	// auto generate the basedomain by retrieving the default ingress *.apps dns.
 	if hc.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil && *hc.Spec.Platform.Kubevirt.BaseDomainPassthrough {
 		if hc.Spec.DNS.BaseDomain == "" {
-			kvInfraCluster, err := r.KubevirtInfraClients.DiscoverKubevirtClusterClient(ctx, r.Client, hc.Spec.InfraID, hc.Spec.Platform.Kubevirt.Credentials, hc.Namespace, hc.Namespace)
+			kvInfraClient, err := r.KubevirtInfraClients.DiscoverKubevirtClusterClient(ctx, r.Client, hc.Spec.InfraID, hc.Spec.Platform.Kubevirt.Credentials, hc.Namespace, hc.Namespace)
 			if err != nil {
 				return err
 			}
 			// kubevirtInfraTempRoute is used to resolve the base domain of the infra cluster without accessing IngressController
-			kubevirtInfraTempRoute := manifests.KubevirtInfraTempRoute(kvInfraCluster.Namespace)
+			kubevirtInfraTempRoute := manifests.KubevirtInfraTempRoute(kvInfraClient.Namespace)
 
 			createOrUpdateProvider := upsert.New(r.EnableCIDebugOutput)
-			_, err = createOrUpdateProvider.CreateOrUpdate(ctx, kvInfraCluster.Client, kubevirtInfraTempRoute, func() error {
+			_, err = createOrUpdateProvider.CreateOrUpdate(ctx, kvInfraClient.Client, kubevirtInfraTempRoute, func() error {
 				return manifests.ReconcileKubevirtInfraTempRoute(kubevirtInfraTempRoute)
 			})
 			if err != nil {
@@ -4335,7 +4352,7 @@ func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx c
 				// This is possible using OCP wildcard routes
 				hc.Spec.DNS.BaseDomain = baseDomain
 
-				if err := kvInfraCluster.Delete(ctx, kubevirtInfraTempRoute); err != nil {
+				if err := kvInfraClient.Client.Delete(ctx, kubevirtInfraTempRoute); err != nil {
 					return err
 				}
 			} else {

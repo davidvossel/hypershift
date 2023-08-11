@@ -29,6 +29,19 @@ func GetConfig() (*rest.Config, error) {
 	return cfg, nil
 }
 
+// GetDiscoveryClient creates a discovery client for the current context
+func GetDiscoveryClient() (*discovery.DiscoveryClient, error) {
+	config, err := GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get kubernetes config: %w", err)
+	}
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get discovery client: %w", err)
+	}
+	return discoveryClient, nil
+}
+
 // GetClient creates a controller-runtime client for Kubernetes
 func GetClient() (crclient.Client, error) {
 	config, err := GetConfig()

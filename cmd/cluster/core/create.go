@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -426,6 +428,71 @@ func CreateCluster(ctx context.Context, opts *CreateOptions, platformSpecificApp
 
 	// In render mode, print the objects and return early
 	if opts.Render {
+		// TODO TESTING
+
+		type info struct {
+			GitVersion   string `json:"gitVersion"`
+			GitCommit    string `json:"gitCommit"`
+			GitTreeState string `json:"gitTreeState"`
+			BuildDate    string `json:"buildDate"`
+			GoVersion    string `json:"goVersion"`
+			Compiler     string `json:"compiler"`
+			Platform     string `json:"platform"`
+		}
+
+		dc, err := util.GetDiscoveryClient()
+		if err != nil {
+			return err
+		}
+
+		restClient := dc.RESTClient()
+
+		var group metav1.APIGroup
+		// First, find out which version to query
+		uri := "/apis/subresources.kubevirt.io"
+		result := restClient.Get().AbsPath(uri).Do(context.Background())
+		if data, err := result.Raw(); err != nil {
+			connErr, isConnectionErr := err.(*url.Error)
+
+			if isConnectionErr {
+				return connErr.Err
+			}
+
+			return err
+		} else if err = json.Unmarshal(data, &group); err != nil {
+			return err
+		}
+
+		// Now, query the preferred version
+		uri = fmt.Sprintf("/apis/%s/version", group.PreferredVersion.GroupVersion)
+		var serverInfo info
+
+		result = restClient.Get().AbsPath(uri).Do(context.Background())
+		if data, err := result.Raw(); err != nil {
+			connErr, isConnectionErr := err.(*url.Error)
+
+			if isConnectionErr {
+				return connErr.Err
+			}
+
+			return err
+		} else if err = json.Unmarshal(data, &serverInfo); err != nil {
+			return err
+		}
+
+		fmt.Printf("CNV SERVER INFO: %v\n", serverInfo)
+
+		// K8S VERSION
+		k8sVersion, err := dc.ServerVersion()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("K8S SERVER INFO: %v\n", k8sVersion)
+
+		return nil
+		// TODO END
+
 		for _, object := range exampleOptions.Resources().AsObjects() {
 			err := hyperapi.YamlSerializer.Encode(object, os.Stdout)
 			if err != nil {
