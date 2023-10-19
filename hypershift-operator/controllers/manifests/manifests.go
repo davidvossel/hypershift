@@ -108,3 +108,12 @@ func OpenShiftTrustedCABundleForNamespace(namespace string) *corev1.ConfigMap {
 		},
 	}
 }
+
+func GeneratedAESCBCSecret(hostedClusterNamespace string, hostedClusterName string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: hostedClusterNamespace,
+			Name:      hostedClusterName + "-etcd-encryption-key",
+		},
+	}
+}

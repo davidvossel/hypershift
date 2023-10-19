@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	apiexample "github.com/openshift/hypershift/api/fixtures"
 	hyperv1 "github.com/openshift/hypershift/api/v1beta1"
 	"github.com/openshift/hypershift/support/supportedversion"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,15 +27,33 @@ func (defaulter *hostedClusterDefaulter) Default(ctx context.Context, obj runtim
 		return apierrors.NewBadRequest(fmt.Sprintf("expected a HostedCluster but got a %T", obj))
 	}
 
-	if hcluster.Spec.Release.Image != "" {
-		return nil
+	if hcluster.Spec.Release.Image == "" {
+		pullSpec, err := supportedversion.LookupLatestSupportedRelease(ctx, hcluster)
+		if err != nil {
+			return fmt.Errorf("unable to find default release image: %w", err)
+		}
+		hcluster.Spec.Release.Image = pullSpec
 	}
 
-	pullSpec, err := supportedversion.LookupLatestSupportedRelease(ctx, hcluster)
-	if err != nil {
-		return fmt.Errorf("unable to find default release image: %w", err)
+	// Default services by platform type
+	if len(hcluster.Spec.Services) == 0 {
+		switch hcluster.Spec.Platform.Type {
+		case hyperv1.KubevirtPlatform:
+			hcluster.Spec.Services = apiexample.GetIngressServicePublishingStrategyMapping(hcluster.Spec.Networking.NetworkType, false)
+		}
 	}
-	hcluster.Spec.Release.Image = pullSpec
+
+	// Default platform specific values
+	switch hcluster.Spec.Platform.Type {
+	case hyperv1.KubevirtPlatform:
+		if hcluster.Spec.DNS.BaseDomain == "" {
+			isTrue := true
+			if hcluster.Spec.Platform.Kubevirt == nil {
+				hcluster.Spec.Platform.Kubevirt = &hyperv1.KubevirtPlatformSpec{}
+			}
+			hcluster.Spec.Platform.Kubevirt.BaseDomainPassthrough = &isTrue
+		}
+	}
 
 	return nil
 }

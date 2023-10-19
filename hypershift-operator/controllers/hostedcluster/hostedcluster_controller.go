@@ -15,6 +15,7 @@ package hostedcluster
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -491,8 +492,10 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	createOrUpdate := r.createOrUpdate(req)
+
 	// Reconcile platform defaults
-	if err := r.reconcilePlatformDefaultSettings(ctx, hcluster); err != nil {
+	if err := r.reconcilePlatformDefaultSettings(ctx, hcluster, createOrUpdate); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -1028,8 +1031,6 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 			}
 		}
 	}
-
-	createOrUpdate := r.createOrUpdate(req)
 
 	var pullSecret corev1.Secret
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: hcluster.Namespace, Name: hcluster.Spec.PullSecret.Name}, &pullSecret); err != nil {
@@ -4571,7 +4572,7 @@ func (r *HostedClusterReconciler) serviceAccountSigningKeyBytes(ctx context.Cont
 	return privateKeyPEMBytes, publicKeyPEMBytes, nil
 }
 
-func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx context.Context, hc *hyperv1.HostedCluster) error {
+func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx context.Context, hc *hyperv1.HostedCluster, createOrUpdate upsert.CreateOrUpdateFN) error {
 	if hc.Spec.Platform.Kubevirt == nil {
 		hc.Spec.Platform.Kubevirt = &hyperv1.KubevirtPlatformSpec{}
 	}
@@ -4629,15 +4630,50 @@ func (r *HostedClusterReconciler) reconcileKubevirtPlatformDefaultSettings(ctx c
 		}
 	}
 
+	if hc.Spec.SecretEncryption == nil {
+		secret := manifests.GeneratedAESCBCSecret(hc.Namespace, hc.Name)
+		if _, err := createOrUpdate(ctx, r.Client, secret, func() error {
+			// don't override existing key
+			_, exists := secret.Data[hyperv1.AESCBCKeySecretKey]
+			if exists {
+				return nil
+			}
+
+			ownerRef := config.OwnerRefFrom(hc)
+			ownerRef.ApplyTo(secret)
+			generatedKey := make([]byte, 32)
+			_, err := rand.Read(generatedKey)
+			if err != nil {
+				return err
+			}
+			secret.Data = map[string][]byte{
+				hyperv1.AESCBCKeySecretKey: generatedKey,
+			}
+			secret.Type = corev1.SecretTypeOpaque
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to generate ETCD SecretEncryption key for KubeVirt platform HostedCluster: %w", err)
+		}
+		hc.Spec.SecretEncryption = &hyperv1.SecretEncryptionSpec{
+			Type: hyperv1.AESCBC,
+			AESCBC: &hyperv1.AESCBCSpec{
+				ActiveKey: corev1.LocalObjectReference{
+					Name: secret.Name,
+				},
+			},
+		}
+	}
+
 	return nil
 
 }
 
-func (r *HostedClusterReconciler) reconcilePlatformDefaultSettings(ctx context.Context, hc *hyperv1.HostedCluster) error {
+func (r *HostedClusterReconciler) reconcilePlatformDefaultSettings(ctx context.Context, hc *hyperv1.HostedCluster, createOrUpdate upsert.CreateOrUpdateFN) error {
 	switch hc.Spec.Platform.Type {
 	case hyperv1.KubevirtPlatform:
-		return r.reconcileKubevirtPlatformDefaultSettings(ctx, hc)
+		return r.reconcileKubevirtPlatformDefaultSettings(ctx, hc, createOrUpdate)
 	}
+
 	return nil
 }
 

@@ -5941,6 +5941,8 @@ spec:
                         type: integer
                     type: object
                   clusterNetwork:
+                    default:
+                    - cidr: 10.132.0.0/14
                     description: ClusterNetwork is the list of IP address pools for
                       pods.
                     items:
@@ -5987,6 +5989,8 @@ spec:
                     - Other
                     type: string
                   serviceNetwork:
+                    default:
+                    - cidr: 172.31.0.0/16
                     description: 'ServiceNetwork is the list of IP address pools for
                       services. NOTE: currently only one entry is supported.'
                     items:

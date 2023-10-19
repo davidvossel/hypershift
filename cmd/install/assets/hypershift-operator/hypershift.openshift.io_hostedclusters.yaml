@@ -5935,6 +5935,12 @@ spec:
                 format: uri
                 type: string
               networking:
+                default:
+                  clusterNetwork:
+                  - cidr: 10.132.0.0/14
+                  networkType: OVNKubernetes
+                  serviceNetwork:
+                  - cidr: 172.31.0.0/16
                 description: Networking specifies network configuration for the cluster.
                 properties:
                   apiServer:
@@ -5973,6 +5979,8 @@ spec:
                         type: integer
                     type: object
                   clusterNetwork:
+                    default:
+                    - cidr: 10.132.0.0/14
                     description: ClusterNetwork is the list of IP address pools for
                       pods.
                     items:
@@ -6019,6 +6027,8 @@ spec:
                     - Other
                     type: string
                   serviceNetwork:
+                    default:
+                    - cidr: 172.31.0.0/16
                     description: 'ServiceNetwork is the list of IP address pools for
                       services. NOTE: currently only one entry is supported.'
                     items:
