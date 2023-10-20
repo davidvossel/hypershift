@@ -2,8 +2,9 @@ package v1beta1
 
 import (
 	"fmt"
-	capibmv1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 	"strings"
+
+	capibmv1 "sigs.k8s.io/cluster-api-provider-ibmcloud/api/v1beta2"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -99,6 +100,7 @@ type NodePoolSpec struct {
 
 	// Management specifies behavior for managing nodes in the pool, such as
 	// upgrade strategies and auto-repair behaviors.
+	// +kubebuilder:default:={autoRepair: false, upgradeType: "Replace", replace: {strategy: "RollingUpdate", rollingUpdate: {maxSurge: 1, maxUnavailable: 0 }}}
 	Management NodePoolManagement `json:"management"`
 
 	// Autoscaling specifies auto-scaling behavior for the NodePool.
@@ -340,6 +342,7 @@ type NodePoolManagement struct {
 	//
 	// +kubebuilder:validation:Enum=Replace;InPlace
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="UpgradeType is immutable"
+	// +kubebuilder:default="Replace"
 	UpgradeType UpgradeType `json:"upgradeType"`
 
 	// Replace is the configuration for rolling upgrades.
@@ -357,6 +360,7 @@ type NodePoolManagement struct {
 	// in the NodePool. The default is false.
 	//
 	// +optional
+	// +kubebuilder:default=false
 	AutoRepair bool `json:"autoRepair"`
 }
 
@@ -690,12 +694,13 @@ const (
 // on KubeVirt platform.
 type KubevirtNodePoolPlatform struct {
 	// RootVolume represents values associated with the VM volume that will host rhcos
+	// +kubebuilder:default={persistent: {size: "32Gi"}, type: "Persistent"}
 	RootVolume *KubevirtRootVolume `json:"rootVolume"`
 
 	// Compute contains values representing the virtual hardware requested for the VM
 	//
 	// +optional
-	// +kubebuilder:default={memory: "4Gi", cores: 2}
+	// +kubebuilder:default={memory: "8Gi", cores: 2}
 	Compute *KubevirtCompute `json:"compute"`
 
 	// NetworkInterfaceMultiQueue If set to "Enable", virtual network interfaces configured with a virtio bus will also

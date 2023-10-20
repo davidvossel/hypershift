@@ -64,24 +64,32 @@ func (defaulter *nodePoolDefaulter) Default(ctx context.Context, obj runtime.Obj
 		return apierrors.NewBadRequest(fmt.Sprintf("expected a NodePool but got a %T", obj))
 	}
 
-	if np.Spec.Release.Image != "" {
-		return nil
-	} else if np.Spec.ClusterName == "" {
-		return fmt.Errorf("nodePool.Spec.ClusterName is a required field")
+	if np.Spec.Release.Image == "" {
+		if np.Spec.ClusterName == "" {
+			return fmt.Errorf("nodePool.Spec.ClusterName is a required field")
+		}
+
+		hc := &hyperv1.HostedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      np.Spec.ClusterName,
+				Namespace: np.Namespace,
+			},
+		}
+
+		err := defaulter.client.Get(ctx, client.ObjectKeyFromObject(hc), hc)
+		if err != nil {
+			return fmt.Errorf("error retrieving HostedCluster named [%s], %v", np.Spec.ClusterName, err)
+		}
+		np.Spec.Release.Image = hc.Spec.Release.Image
 	}
 
-	hc := &hyperv1.HostedCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      np.Spec.ClusterName,
-			Namespace: np.Namespace,
-		},
+	// Default platform specific values
+	switch np.Spec.Platform.Type {
+	case hyperv1.KubevirtPlatform:
+		if np.Spec.Platform.Kubevirt == nil {
+			np.Spec.Platform.Kubevirt = &hyperv1.KubevirtNodePoolPlatform{}
+		}
 	}
-
-	err := defaulter.client.Get(ctx, client.ObjectKeyFromObject(hc), hc)
-	if err != nil {
-		return fmt.Errorf("error retrieving HostedCluster named [%s], %v", np.Spec.ClusterName, err)
-	}
-	np.Spec.Release.Image = hc.Spec.Release.Image
 
 	return nil
 }
