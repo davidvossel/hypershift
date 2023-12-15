@@ -967,6 +967,13 @@ func (o HyperShiftOperatorClusterRole) Build() *rbacv1.ClusterRole {
 				Verbs: []string{"*"},
 			},
 			{
+				APIGroups: []string{"storage.k8s.io"},
+				Resources: []string{
+					"storageclasses",
+				},
+				Verbs: []string{"get", "list", "watch"},
+			},
+			{
 				APIGroups: []string{"apps"},
 				Resources: []string{"deployments", "replicasets", "statefulsets"},
 				Verbs:     []string{"*"},

@@ -81,6 +81,36 @@ func (defaulter *hostedClusterDefaulter) Default(ctx context.Context, obj runtim
 			}
 			hcluster.Spec.Services = append(hcluster.Spec.Services, entry)
 		}
+
+		if hcluster.Spec.Etcd.ManagementType == "" {
+			hcluster.Spec.Etcd.ManagementType = hyperv1.Managed
+		}
+
+		if hcluster.Spec.Etcd.ManagementType == hyperv1.Managed {
+			if hcluster.Spec.Etcd.Managed == nil {
+				hcluster.Spec.Etcd.Managed = &hyperv1.ManagedEtcdSpec{}
+			}
+			if hcluster.Spec.Etcd.Managed.Storage.Type == "" {
+				hcluster.Spec.Etcd.Managed.Storage.Type = hyperv1.PersistentVolumeEtcdStorage
+			}
+			if hcluster.Spec.Etcd.Managed.Storage.Type == hyperv1.PersistentVolumeEtcdStorage && hcluster.Spec.Etcd.Managed.Storage.PersistentVolume == nil {
+				hcluster.Spec.Etcd.Managed.Storage.PersistentVolume = &hyperv1.PersistentVolumeEtcdStorageSpec{}
+			}
+
+			// TODO Attempt to default storage class
+			// TODO add storagev1 to scheme
+			//
+			//	storagev1 "k8s.io/api/storage/v1"
+			//	scList := &storagev1.StorageClassList{}
+			//	if err := r.List(ctx, scList); err != nil {
+			//		return nil, fmt.Errorf("failed to list storageClasses: %w", err)
+			//	}
+			if hcluster.Spec.Etcd.Managed.Storage.PersistentVolume != nil && hcluster.Spec.Etcd.Managed.Storage.PersistentVolume.StorageClassName == nil {
+
+			}
+
+		}
+
 	}
 
 	return nil
