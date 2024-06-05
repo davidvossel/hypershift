@@ -35,6 +35,16 @@ func IngressDefaultIngressNodePortService() *corev1.Service {
 	}
 }
 
+const IngressDefaultIngressLoadBalancerName = "default-ingress-loadbalancer"
+
+func IngressDefaultIngressLoadBalancer(namespace string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+		},
+	}
+}
+
 const IngressDefaultIngressPassthroughServiceName = "default-ingress-passthrough-service"
 
 func IngressDefaultIngressPassthroughService(namespace string) *corev1.Service {

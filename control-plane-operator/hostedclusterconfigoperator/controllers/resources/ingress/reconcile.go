@@ -35,6 +35,7 @@ func ReconcileDefaultIngressController(ingressController *operatorv1.IngressCont
 		}
 	case hyperv1.KubevirtPlatform:
 		ingressController.Spec.EndpointPublishingStrategy = &operatorv1.EndpointPublishingStrategy{
+			// TODO evaluate HostNetwork
 			Type: operatorv1.NodePortServiceStrategyType,
 		}
 		ingressController.Spec.DefaultCertificate = &corev1.LocalObjectReference{
@@ -108,6 +109,49 @@ func ReconcileDefaultIngressControllerCertSecret(certSecret *corev1.Secret, sour
 	certSecret.Data = map[string][]byte{}
 	certSecret.Data[corev1.TLSCertKey] = sourceSecret.Data[corev1.TLSCertKey]
 	certSecret.Data[corev1.TLSPrivateKeyKey] = sourceSecret.Data[corev1.TLSPrivateKeyKey]
+	return nil
+}
+
+func ReconcileDefaultIngressLoadBalancerService(service *corev1.Service, defaultNodePort *corev1.Service, hcp *hyperv1.HostedControlPlane) error {
+	detectedHTTPSNodePort := int32(0)
+	detectedHTTPNodePort := int32(0)
+
+	for _, port := range defaultNodePort.Spec.Ports {
+		if port.Port == 443 {
+			detectedHTTPSNodePort = port.NodePort
+		} else if port.Port == 80 {
+			detectedHTTPNodePort = port.NodePort
+		}
+	}
+
+	if detectedHTTPSNodePort == 0 || detectedHTTPNodePort == 0 {
+		return fmt.Errorf("unable to detect default ingress NodePort target ports")
+	}
+
+	if service.Labels == nil {
+		service.Labels = map[string]string{}
+	}
+	service.Spec.Ports = []corev1.ServicePort{
+		{
+			Name:       "https-443",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       443,
+			TargetPort: intstr.FromInt(int(detectedHTTPSNodePort)),
+		},
+		{
+			Name:       "http-80",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       80,
+			TargetPort: intstr.FromInt(int(detectedHTTPNodePort)),
+		},
+	}
+	service.Spec.Selector = map[string]string{
+		"kubevirt.io":        "virt-launcher",
+		hyperv1.InfraIDLabel: hcp.Spec.InfraID,
+	}
+	service.Spec.Type = corev1.ServiceTypeLoadBalancer
+	service.Labels[hyperv1.InfraIDLabel] = hcp.Spec.InfraID
+
 	return nil
 }
 

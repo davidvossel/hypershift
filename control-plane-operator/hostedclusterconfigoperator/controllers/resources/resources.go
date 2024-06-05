@@ -921,9 +921,7 @@ func (r *reconciler) reconcileIngressController(ctx context.Context, hcp *hyperv
 	// Default Ingress is passed through as a subdomain of the infra/mgmt cluster
 	// for KubeVirt when the base domain passthrough feature is in use.
 	if hcp.Spec.Platform.Type == hyperv1.KubevirtPlatform &&
-		hcp.Spec.Platform.Kubevirt != nil &&
-		hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil &&
-		*hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough {
+		hcp.Spec.Platform.Kubevirt != nil {
 
 		// Here we are creating a route and service in the hosted control plane namespace
 		// while in the HCCO (which typically only works on the guest client, not the mgmt client).
@@ -948,31 +946,48 @@ func (r *reconciler) reconcileIngressController(ctx context.Context, hcp *hyperv
 			namespace = hcp.Namespace
 		}
 
-		// Manifests for infra/mgmt cluster passthrough service
-		cpService := manifests.IngressDefaultIngressPassthroughService(namespace)
+		if hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough != nil && *hcp.Spec.Platform.Kubevirt.BaseDomainPassthrough {
 
-		cpService.Name = fmt.Sprintf("%s-%s",
-			manifests.IngressDefaultIngressPassthroughServiceName,
-			hcp.Spec.Platform.Kubevirt.GenerateID)
+			// Manifests for infra/mgmt cluster passthrough service
+			cpService := manifests.IngressDefaultIngressPassthroughService(namespace)
 
-		// Manifests for infra/mgmt cluster passthrough routes
-		cpPassthroughRoute := manifests.IngressDefaultIngressPassthroughRoute(namespace)
+			cpService.Name = fmt.Sprintf("%s-%s",
+				manifests.IngressDefaultIngressPassthroughServiceName,
+				hcp.Spec.Platform.Kubevirt.GenerateID)
 
-		cpPassthroughRoute.Name = fmt.Sprintf("%s-%s",
-			manifests.IngressDefaultIngressPassthroughRouteName,
-			hcp.Spec.Platform.Kubevirt.GenerateID)
+			// Manifests for infra/mgmt cluster passthrough routes
+			cpPassthroughRoute := manifests.IngressDefaultIngressPassthroughRoute(namespace)
 
-		if _, err := r.CreateOrUpdate(ctx, r.kubevirtInfraClient, cpService, func() error {
-			return ingress.ReconcileDefaultIngressPassthroughService(cpService, defaultIngressNodePortService, hcp)
-		}); err != nil {
-			errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough service: %w", err))
+			cpPassthroughRoute.Name = fmt.Sprintf("%s-%s",
+				manifests.IngressDefaultIngressPassthroughRouteName,
+				hcp.Spec.Platform.Kubevirt.GenerateID)
+
+			if _, err := r.CreateOrUpdate(ctx, r.kubevirtInfraClient, cpService, func() error {
+				return ingress.ReconcileDefaultIngressPassthroughService(cpService, defaultIngressNodePortService, hcp)
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough service: %w", err))
+			}
+
+			if _, err := r.CreateOrUpdate(ctx, r.kubevirtInfraClient, cpPassthroughRoute, func() error {
+				return ingress.ReconcileDefaultIngressPassthroughRoute(cpPassthroughRoute, cpService, hcp)
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough route: %w", err))
+			}
+		} else {
+			// Manifests for infra/mgmt cluster load balancer service
+			cpLBService := manifests.IngressDefaultIngressLoadBalancer(namespace)
+
+			cpLBService.Name = fmt.Sprintf("%s-%s",
+				manifests.IngressDefaultIngressLoadBalancerName,
+				hcp.Spec.Platform.Kubevirt.GenerateID)
+
+			if _, err := r.CreateOrUpdate(ctx, r.kubevirtInfraClient, cpLBService, func() error {
+				return ingress.ReconcileDefaultIngressLoadBalancerService(cpLBService, defaultIngressNodePortService, hcp)
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress load balancer service: %w", err))
+			}
 		}
 
-		if _, err := r.CreateOrUpdate(ctx, r.kubevirtInfraClient, cpPassthroughRoute, func() error {
-			return ingress.ReconcileDefaultIngressPassthroughRoute(cpPassthroughRoute, cpService, hcp)
-		}); err != nil {
-			errs = append(errs, fmt.Errorf("failed to reconcile kubevirt ingress passthrough route: %w", err))
-		}
 	}
 
 	return errors.NewAggregate(errs)

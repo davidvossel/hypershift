@@ -77,6 +77,21 @@ func (r *reconciler) findKubevirtPassthroughServices(ctx context.Context, hcp *h
 		kubevirtPassthroughServices = append(kubevirtPassthroughServices, *cpService)
 	}
 
+	// Manifests for infra/mgmt ingress lb service
+	lbService := hcpmanifests.IngressDefaultIngressLoadBalancer(kubevirtInfraNamespace(hcp))
+	lbService.Name = fmt.Sprintf("%s-%s",
+		hcpmanifests.IngressDefaultIngressLoadBalancerName,
+		hcp.Spec.Platform.Kubevirt.GenerateID)
+
+	err = r.kubevirtInfraClient.Get(ctx, client.ObjectKeyFromObject(lbService), lbService)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("failed to get default ingress load balancer Service: %w", err)
+	}
+	if !apierrors.IsNotFound(err) {
+		kubevirtPassthroughServices = append(kubevirtPassthroughServices, *lbService)
+	}
+
+	// cloud provider kubevirt provisioned LBs
 	kccmServiceList := &corev1.ServiceList{}
 	if err := r.kubevirtInfraClient.List(ctx, kccmServiceList, client.InNamespace(kubevirtInfraNamespace(hcp)),
 		client.HasLabels{tenantServiceNameLabelKey},
